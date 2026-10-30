@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.output/
+.vercel/
+.nitro/
+.tanstack/
+.wrangler/
+*.log
+.DS_Store
+.env
+.env.*
+.grok/
+screenshots/
+playwright-report/
+test-results/
