@@ -10,6 +10,15 @@ export type WeddingEvent = {
   date: string;
   time: string;
   place: string;
+  /**
+   * Coordenadas y zona horaria del lugar, SOLO si quien organiza lo buscó con
+   * la ayuda en línea (Photon/OpenStreetMap + Open-Meteo). Opcionales: los
+   * eventos creados antes (y los escritos a mano) siguen sin ubicación exacta
+   * y todo lo demás funciona igual, sin internet.
+   */
+  placeLat?: number | null;
+  placeLon?: number | null;
+  placeTz?: string;
   photo: Blob | null;
   secret: string;
   demo: boolean;

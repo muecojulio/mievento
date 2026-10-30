@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { EventForm } from "@/components/mievento/event-form";
 import { Btn, Mark, Monogram, OnlineNote, usePhotoUrl } from "@/components/mievento/ui";
 import { coupleNames, formatLongDate, tally } from "@/lib/mievento/format";
+import { countdownLabel, daysUntil } from "@/lib/mievento/public-apis";
 import { qrDataUrl } from "@/lib/mievento/pass";
 import { createEvent, importBackup, useBootError, useEvents, useGuests, useReady } from "@/lib/mievento/store";
 import type { WeddingEvent } from "@/lib/mievento/types";
@@ -145,6 +146,7 @@ function EventCard({ event }: { event: WeddingEvent }) {
   const guests = useGuests(event.id);
   const photo = usePhotoUrl(event.photo);
   const counts = tally(guests);
+  const days = daysUntil(event.date);
   const pct = counts.totalInvites === 0 ? 0 : Math.round((counts.totalIn / counts.totalInvites) * 100);
   return (
     <Link
@@ -161,6 +163,7 @@ function EventCard({ event }: { event: WeddingEvent }) {
         <p className="mt-1 text-sm text-stone">
           {formatLongDate(event.date)}
           {event.time ? ` · ${event.time}` : ""}
+          {days != null && !event.closed ? ` · ${countdownLabel(days)}` : ""}
         </p>
         <p className="mt-3 text-sm tabular-nums text-ink-soft">
           {counts.totalIn} de {counts.totalInvites} invitaciones · {counts.totalPeople} personas dentro

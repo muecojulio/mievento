@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ScanLine } from "lucide-react";
 import { EventForm } from "@/components/mievento/event-form";
+import { EventInsights } from "@/components/mievento/place-extras";
 import { Btn, Monogram, OnlineNote, usePhotoUrl } from "@/components/mievento/ui";
 import { downloadBlob } from "@/lib/mievento/pass";
 import { coupleNames, entryLabel, formatClock, formatLongDate, peopleLabel, sideLabel, slugFile, tally } from "@/lib/mievento/format";
@@ -97,6 +98,8 @@ function Dashboard() {
         </Link>
       )}
       {notice ? <p className="mt-3 text-sm text-ink-soft">{notice}</p> : null}
+
+      <EventInsights event={event} />
 
       <section className="mt-8">
         <h2 className="font-display text-2xl">Últimos ingresos</h2>

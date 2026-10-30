@@ -71,6 +71,10 @@ export function parseWallet(raw: string | null | undefined): WalletPass[] {
       if (!isWalletPass(item)) continue;
       if (seen.has(item.token)) continue;
       seen.add(item.token);
+      const lat = typeof item.lat === "number" && Number.isFinite(item.lat) ? item.lat : null;
+      const lon = typeof item.lon === "number" && Number.isFinite(item.lon) ? item.lon : null;
+      const hasCoords =
+        lat != null && lon != null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && !(lat === 0 && lon === 0);
       clean.push({
         token: item.token,
         name: text(item.name),
@@ -79,6 +83,11 @@ export function parseWallet(raw: string | null | undefined): WalletPass[] {
         date: text(item.date),
         time: text(item.time),
         place: text(item.place),
+        // Ubicación del lugar (opcional): "cómo llegar" y clima en el Wallet.
+        // Los Wallets guardados antes no la traen y siguen abriendo igual.
+        lat: hasCoords ? lat : null,
+        lon: hasCoords ? lon : null,
+        tz: text(item.tz),
         side: item.side,
         party: Math.min(20, Math.max(1, Math.round(item.party))),
         motif: item.motif,

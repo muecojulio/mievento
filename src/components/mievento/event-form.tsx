@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MapPin } from "lucide-react";
 import { Field, fieldClass, Btn, Monogram, usePhotoUrl } from "@/components/mievento/ui";
+import { HolidayHint } from "@/components/mievento/place-extras";
+import { resolveTimezone, searchPlaces, type PlaceSuggestion } from "@/lib/mievento/public-apis";
 import type { WeddingEvent } from "@/lib/mievento/types";
 
 export type EventDraft = {
@@ -8,6 +11,9 @@ export type EventDraft = {
   date: string;
   time: string;
   place: string;
+  placeLat: number | null;
+  placeLon: number | null;
+  placeTz: string;
   photo: Blob | null;
 };
 
@@ -29,6 +35,70 @@ export function EventForm({
   const [date, setDate] = useState(initial?.date ?? "");
   const [time, setTime] = useState(initial?.time ?? "18:00");
   const [place, setPlace] = useState(initial?.place ?? "");
+  const [placeLat, setPlaceLat] = useState<number | null>(initial?.placeLat ?? null);
+  const [placeLon, setPlaceLon] = useState<number | null>(initial?.placeLon ?? null);
+  const [placeTz, setPlaceTz] = useState(initial?.placeTz ?? "");
+  const [pickedLabel, setPickedLabel] = useState(
+    initial?.placeLat != null && initial?.placeLon != null ? (initial?.place ?? "") : "",
+  );
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const searchSeq = useRef(0);
+
+  // Búsqueda opcional del lugar en OpenStreetMap (Photon, sin llave). Solo se
+  // envía el texto del lugar que se está escribiendo; sin internet, el campo
+  // sigue funcionando a mano como siempre.
+  useEffect(() => {
+    const query = place.trim();
+    if (query.length < 4 || query === pickedLabel) {
+      setSuggestions([]);
+      setSearching(false);
+      return;
+    }
+    const seq = ++searchSeq.current;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      void searchPlaces(query)
+        .then((list) => {
+          if (searchSeq.current !== seq) return;
+          setSuggestions(list);
+          setSearchFailed(false);
+        })
+        .catch(() => {
+          if (searchSeq.current !== seq) return;
+          setSuggestions([]);
+          setSearchFailed(true);
+        })
+        .finally(() => {
+          if (searchSeq.current === seq) setSearching(false);
+        });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [place, pickedLabel]);
+
+  function onPlaceChange(value: string) {
+    setPlace(value);
+    if (pickedLabel && value !== pickedLabel) {
+      // El texto ya no es el lugar elegido: la ubicación exacta dejaría de
+      // corresponder, así que se quita (el lugar escrito a mano se conserva).
+      setPickedLabel("");
+      setPlaceLat(null);
+      setPlaceLon(null);
+      setPlaceTz("");
+    }
+  }
+
+  function pickPlace(suggestion: PlaceSuggestion) {
+    const label = suggestion.label.slice(0, 120);
+    setPlace(label);
+    setPickedLabel(label);
+    setPlaceLat(suggestion.lat);
+    setPlaceLon(suggestion.lon);
+    setSuggestions([]);
+    setSearchFailed(false);
+    void resolveTimezone(suggestion.lat, suggestion.lon).then((tz) => setPlaceTz(tz ?? ""));
+  }
   const [photo, setPhoto] = useState<Blob | null>(initial?.photo ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -52,7 +122,7 @@ export function EventForm({
     setBusy(true);
     setError("");
     try {
-      await onSubmit({ groom, bride, date, time, place, photo });
+      await onSubmit({ groom, bride, date, time, place, placeLat, placeLon, placeTz, photo });
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar el evento");
       setBusy(false);
@@ -108,9 +178,69 @@ export function EventForm({
               <input className={fieldClass} type="time" value={time} onChange={(event) => setTime(event.target.value)} />
             </Field>
           </div>
-          <Field label="Lugar">
-            <input className={fieldClass} value={place} onChange={(event) => setPlace(event.target.value)} maxLength={80} placeholder="Salón, jardín, parroquia" />
-          </Field>
+          <HolidayHint date={date} />
+          <div>
+            <Field label="Lugar">
+              <input
+                className={fieldClass}
+                value={place}
+                onChange={(event) => onPlaceChange(event.target.value)}
+                maxLength={120}
+                placeholder="Salón, jardín, parroquia — escribe para buscarlo en el mapa"
+                autoComplete="off"
+              />
+            </Field>
+            {placeLat != null && placeLon != null ? (
+              <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-sage">
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="size-4" />
+                  Ubicación exacta lista: clima, mapa y «cómo llegar» en los pases.
+                </span>
+                <button
+                  type="button"
+                  className="font-medium text-brass"
+                  onClick={() => {
+                    setPickedLabel("");
+                    setPlaceLat(null);
+                    setPlaceLon(null);
+                    setPlaceTz("");
+                  }}
+                >
+                  Quitar
+                </button>
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-stone">
+                Al escribir, solo ese texto se busca en OpenStreetMap para sugerir el lugar (sin cuenta ni llave).
+                La lista de invitados no sale de la tablet. También puedes escribirlo a mano, sin buscar.
+              </p>
+            )}
+            {searching ? <p className="mt-2 text-sm text-stone">Buscando lugares…</p> : null}
+            {searchFailed && !searching ? (
+              <p className="mt-2 text-sm text-stone">
+                Sin conexión para buscar lugares. Escribe el lugar a mano: el evento se guarda igual.
+              </p>
+            ) : null}
+            {suggestions.length > 0 ? (
+              <ul className="mt-2 divide-y divide-line rounded-2xl border border-line" aria-label="Lugares sugeridos">
+                {suggestions.map((suggestion) => (
+                  <li key={`${suggestion.lat},${suggestion.lon},${suggestion.label}`}>
+                    <button
+                      type="button"
+                      className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink"
+                      onClick={() => pickPlace(suggestion)}
+                    >
+                      <MapPin className="size-4 shrink-0 text-brass" />
+                      <span className="min-w-0">{suggestion.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {suggestions.length > 0 ? (
+              <p className="mt-1.5 text-xs text-stone">Lugares: © OpenStreetMap contributors (búsqueda Photon).</p>
+            ) : null}
+          </div>
           {error ? <p className="text-sm text-alert">{error}</p> : null}
           <div className="flex gap-2">
             <Btn type="submit" className="flex-1" disabled={busy}>
