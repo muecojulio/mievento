@@ -4,8 +4,9 @@ import { ScanLine } from "lucide-react";
 import { EventForm } from "@/components/mievento/event-form";
 import { Btn, Monogram, OnlineNote, usePhotoUrl } from "@/components/mievento/ui";
 import { downloadBlob } from "@/lib/mievento/pass";
-import { coupleNames, formatClock, formatLongDate, peopleLabel, sideLabel, slugFile, tally } from "@/lib/mievento/format";
-import { exportBackup, removeEvent, updateEvent, useEvent, useGuests } from "@/lib/mievento/store";
+import { coupleNames, entryLabel, formatClock, formatLongDate, peopleLabel, sideLabel, slugFile, tally } from "@/lib/mievento/format";
+import { closingCsv } from "@/lib/mievento/excel";
+import { exportBackup, finishEvent, recycleCodes, removeEvent, reopenEvent, updateEvent, useEvent, useGuests } from "@/lib/mievento/store";
 import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/evento/$eventId/")({
@@ -20,6 +21,9 @@ function Dashboard() {
   const counts = useMemo(() => tally(guests), [guests]);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  const [confirmRecycle, setConfirmRecycle] = useState(false);
+  const [notice, setNotice] = useState("");
   const navigate = useNavigate();
   if (!event) return null;
 
@@ -57,15 +61,40 @@ function Dashboard() {
       <p className="mt-3 text-sm tabular-nums text-stone">
         Pendientes: {counts.pendingInvites} invitaciones · {peopleLabel(counts.pendingPeople)} todavía fuera. En lista, {peopleLabel(counts.expectedPeople)}.
       </p>
+      <div className="mt-3">
+        <Btn
+          variant="ghost"
+          onClick={() => downloadBlob(closingCsv(event, guests), `cierre-${slugFile(event)}.csv`)}
+        >
+          Descargar cierre
+        </Btn>
+        <p className="mt-2 text-sm text-stone">Archivo para Excel: quién entró, a qué hora, de qué lado y quién no llegó.</p>
+      </div>
 
-      <Link
-        to="/evento/$eventId/escaner"
-        params={{ eventId }}
-        className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-brass text-base font-medium text-paper transition-transform duration-150 active:scale-[0.96]"
-      >
-        <ScanLine className="size-5" />
-        Escanear código
-      </Link>
+      {event.closed ? (
+        <section className="mt-4 rounded-3xl border border-line px-5 py-5">
+          <h2 className="font-display text-3xl">Evento terminado</h2>
+          <p className="mt-2 max-w-xl text-sm text-stone">
+            El lector no deja pasar. Si reciclas los códigos, las mismas imágenes vuelven a servir y quien ya entró queda otra vez en pendiente. La firma no cambia.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Btn onClick={() => setConfirmRecycle(true)}>Reciclar códigos</Btn>
+            <Btn variant="ghost" onClick={() => void reopenEvent(event.id).then(() => setNotice("El evento sigue abierto. Los ingresos se conservan."))}>
+              Seguir el evento
+            </Btn>
+          </div>
+        </section>
+      ) : (
+        <Link
+          to="/evento/$eventId/escaner"
+          params={{ eventId }}
+          className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-brass text-base font-medium text-paper transition-transform duration-150 active:scale-[0.96]"
+        >
+          <ScanLine className="size-5" />
+          Escanear código
+        </Link>
+      )}
+      {notice ? <p className="mt-3 text-sm text-ink-soft">{notice}</p> : null}
 
       <section className="mt-8">
         <h2 className="font-display text-2xl">Últimos ingresos</h2>
@@ -78,7 +107,8 @@ function Dashboard() {
                 <div>
                   <p className="font-medium">{guest.name}</p>
                   <p className="text-sm text-stone">
-                    {sideLabel(guest.side)} · {peopleLabel(guest.party)}
+                    {sideLabel(guest.side)} · {guest.arrived != null && guest.arrived !== guest.party ? `${guest.arrived} de ${peopleLabel(guest.party)}` : peopleLabel(guest.arrived ?? guest.party)}
+                    {guest.entry && guest.entry !== "pase" ? ` · ${entryLabel(guest.entry)}` : ""}
                     {guest.note ? ` · ${guest.note}` : ""}
                   </p>
                 </div>
@@ -107,6 +137,11 @@ function Dashboard() {
           <Btn variant="quiet" onClick={() => setConfirmDelete(true)}>
             Eliminar evento
           </Btn>
+          {event.closed ? null : (
+            <Btn variant="quiet" onClick={() => setConfirmFinish(true)}>
+              Terminar evento
+            </Btn>
+          )}
         </div>
         <p className="mt-3 text-sm text-stone">
           La copia incluye la llave de los códigos. No la compartas: con ella se podrían fabricar pases.
@@ -126,6 +161,67 @@ function Dashboard() {
         />
       ) : null}
 
+      {confirmFinish ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 p-3 sm:items-center" onClick={() => setConfirmFinish(false)}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-3xl bg-paper p-5" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-display text-3xl">¿Terminar este evento?</h2>
+            <p className="mt-2 text-sm text-stone">
+              El lector deja de aceptar pases. La lista y los códigos se quedan. Después puedes reciclarlos para que las mismas imágenes vuelvan a servir.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <Btn
+                variant="ink"
+                onClick={async () => {
+                  await finishEvent(event.id);
+                  setConfirmFinish(false);
+                  setNotice("Evento terminado. El lector no deja pasar.");
+                }}
+              >
+                Terminar
+              </Btn>
+              <Btn variant="ghost" onClick={() => setConfirmFinish(false)}>
+                Cancelar
+              </Btn>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmRecycle ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 p-3 sm:items-center" onClick={() => setConfirmRecycle(false)}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-3xl bg-paper p-5" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-display text-3xl">Reciclar códigos</h2>
+            <p className="mt-2 text-sm text-stone">
+              Las imágenes que ya enviaste vuelven a servir. Quien entró, también en la puerta, queda otra vez en pendiente. Si necesitas el registro de esta noche, descárgalo ahora.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <Btn
+                onClick={async () => {
+                  downloadBlob(closingCsv(event, guests), `cierre-${slugFile(event)}.csv`);
+                  const used = await recycleCodes(event.id);
+                  setConfirmRecycle(false);
+                  setNotice(recycleNotice(used));
+                }}
+              >
+                Descargar cierre y reciclar
+              </Btn>
+              <Btn
+                variant="ghost"
+                onClick={async () => {
+                  const used = await recycleCodes(event.id);
+                  setConfirmRecycle(false);
+                  setNotice(recycleNotice(used));
+                }}
+              >
+                Reciclar
+              </Btn>
+              <Btn variant="quiet" onClick={() => setConfirmRecycle(false)}>
+                Cancelar
+              </Btn>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {confirmDelete ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 p-3 sm:items-center" onClick={() => setConfirmDelete(false)}>
           <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-3xl bg-paper p-5" onClick={(e) => e.stopPropagation()}>
@@ -150,6 +246,12 @@ function Dashboard() {
       ) : null}
     </main>
   );
+}
+
+function recycleNotice(used: number): string {
+  if (used === 1) return "1 código vuelve a servir.";
+  if (used > 1) return `${used} códigos vuelven a servir.`;
+  return "Los códigos vuelven a servir.";
 }
 
 function Stat({ label, value, hint, people }: { label: string; value: number; hint: string; people: string }) {

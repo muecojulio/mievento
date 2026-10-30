@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { makeToken, parseToken, randomId, randomSecret, safeEqual, signBody } from "@/lib/mievento/crypto";
 import { dbDeleteEvent, dbDeleteGuest, dbGetAll, dbPutEvent, dbPutGuests } from "@/lib/mievento/db";
-import type { AdmitResult, DraftGuest, Guest, GuestStatus, ImportReport, Side, WeddingEvent } from "@/lib/mievento/types";
+import type { AdmitResult, DraftGuest, EntryKind, Guest, GuestStatus, ImportReport, Side, WeddingEvent } from "@/lib/mievento/types";
 
 const EMPTY_EVENTS: WeddingEvent[] = [];
 const EMPTY_GUESTS: Guest[] = [];
@@ -27,7 +27,7 @@ async function bootInner() {
   try {
     const stored = await dbGetAll();
     events = stored.events.sort((a, b) => b.createdAt - a.createdAt);
-    guests = stored.guests;
+    guests = stored.guests.map(normalizeGuest);
     if (events.length === 0 && !localStorage.getItem(SEEDED_KEY)) {
       await seedDemo();
       localStorage.setItem(SEEDED_KEY, "1");
@@ -105,6 +105,48 @@ export async function createEvent(input: {
   return event;
 }
 
+export async function finishEvent(eventId: string): Promise<void> {
+  const current = events.find((event) => event.id === eventId);
+  if (!current || current.closed) return;
+  const next = { ...current, closed: true };
+  await dbPutEvent(next);
+  replaceEvent(next);
+}
+
+export async function reopenEvent(eventId: string): Promise<void> {
+  const current = events.find((event) => event.id === eventId);
+  if (!current?.closed) return;
+  const next = { ...current, closed: false };
+  await dbPutEvent(next);
+  replaceEvent(next);
+}
+
+export async function recycleCodes(eventId: string): Promise<number> {
+  const current = events.find((event) => event.id === eventId);
+  if (!current?.closed) return 0;
+  const list = guests.filter((guest) => guest.eventId === eventId);
+  const used = list.filter((guest) => guest.status === "Ingresado").length;
+  const reset = list.map((guest) =>
+    guest.status === "Pendiente" && guest.scannedAt == null && guest.arrived == null && guest.entry == null
+      ? guest
+      : { ...guest, status: "Pendiente" as const, scannedAt: null, arrived: null, entry: null },
+  );
+  const changed = reset.filter((guest, index) => guest !== list[index]);
+  const previousGuests = guests;
+  guests = guests.map((guest) => reset.find((item) => item.id === guest.id) ?? guest);
+  const reopened = { ...current, closed: false };
+  replaceEvent(reopened);
+  try {
+    if (changed.length) await dbPutGuests(changed);
+    await dbPutEvent(reopened);
+  } catch (error) {
+    guests = previousGuests;
+    replaceEvent(current);
+    throw error;
+  }
+  return used;
+}
+
 export async function updateEvent(
   eventId: string,
   patch: Partial<Pick<WeddingEvent, "groom" | "bride" | "date" | "time" | "place" | "photo">>,
@@ -130,7 +172,8 @@ export async function addGuests(eventId: string, drafts: DraftGuest[]): Promise<
   const accepted = drafts.slice(0, room);
   const skipped = drafts.length - accepted.length;
   const created: Guest[] = [];
-  for (const draft of accepted) {
+  for (let i = 0; i < accepted.length; i++) {
+    const draft = accepted[i];
     const id = randomId();
     const token = await makeToken(event.secret, event.id, id);
     created.push({
@@ -145,7 +188,10 @@ export async function addGuests(eventId: string, drafts: DraftGuest[]): Promise<
       status: "Pendiente",
       token,
       scannedAt: null,
+      arrived: null,
+      entry: null,
     });
+    if (i > 0 && i % 40 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
   }
   await dbPutGuests(created);
   guests = [...guests, ...created];
@@ -208,6 +254,9 @@ async function admitInner(eventId: string, raw: string): Promise<AdmitResult> {
   if (!safeEqual(expected, parsed.sig)) {
     return { ok: false, reason: "invalid", message: "Este código no está en la lista. El paso no está autorizado." };
   }
+  if (event.closed) {
+    return { ok: false, reason: "closed", message: "El evento ya terminó. El paso no está autorizado." };
+  }
   const guest = guests.find((item) => item.id === parsed.guestId && item.eventId === eventId);
   if (!guest || guest.token !== parsed.token) {
     return { ok: false, reason: "invalid", message: "Este código no está en la lista. El paso no está autorizado." };
@@ -220,7 +269,113 @@ async function admitInner(eventId: string, raw: string): Promise<AdmitResult> {
       message: "Error: Este código ya fue utilizado",
     };
   }
-  const next: Guest = { ...guest, status: "Ingresado" satisfies GuestStatus, scannedAt: Date.now() };
+  const next = await commitAdmit(guest, "pase", guest.party);
+  return { ok: true, guest: next };
+}
+
+export function admitByName(guestId: string, arrived?: number): Promise<AdmitResult> {
+  const run = admitChain.then(() => admitNamed(guestId, arrived));
+  admitChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function admitNamed(guestId: string, arrived?: number): Promise<AdmitResult> {
+  const guest = guests.find((item) => item.id === guestId);
+  if (!guest) {
+    return { ok: false, reason: "invalid", message: "Este invitado ya no está en la lista. El paso no está autorizado." };
+  }
+  const event = events.find((item) => item.id === guest.eventId);
+  if (event?.closed) {
+    return { ok: false, reason: "closed", guest, message: "El evento ya terminó. El paso no está autorizado." };
+  }
+  if (guest.status === "Ingresado") {
+    return { ok: false, reason: "used", guest, message: "Esta persona ya ingresó" };
+  }
+  const next = await commitAdmit(guest, "nombre", clampArrived(arrived ?? guest.party, guest.party));
+  return { ok: true, guest: next };
+}
+
+export function addWalkIn(
+  eventId: string,
+  input: { name: string; side: Side; party: number },
+): Promise<AdmitResult> {
+  const run = admitChain.then(() => walkInInner(eventId, input));
+  admitChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function walkInInner(
+  eventId: string,
+  input: { name: string; side: Side; party: number },
+): Promise<AdmitResult> {
+  const event = events.find((item) => item.id === eventId);
+  const name = input.name.trim().slice(0, 80);
+  if (!event || !name) {
+    return { ok: false, reason: "invalid", message: "Falta el nombre. El paso no está autorizado." };
+  }
+  if (event.closed) {
+    return { ok: false, reason: "closed", message: "El evento ya terminó. El paso no está autorizado." };
+  }
+  const room = 2000 - guests.filter((guest) => guest.eventId === eventId).length;
+  if (room <= 0) {
+    return { ok: false, reason: "invalid", message: "La lista ya está llena. El paso no está autorizado." };
+  }
+  const id = randomId();
+  const party = clampParty(input.party);
+  const pending: Guest = {
+    id,
+    eventId: event.id,
+    name,
+    side: input.side,
+    email: "",
+    phone: "",
+    party,
+    note: "",
+    status: "Pendiente",
+    token: await makeToken(event.secret, event.id, id),
+    scannedAt: null,
+    arrived: null,
+    entry: null,
+  };
+  const next = await commitAdmit(pending, "puerta", party);
+  return { ok: true, guest: next };
+}
+
+async function commitAdmit(previous: Guest, entry: EntryKind, arrived: number): Promise<Guest> {
+  const next: Guest = {
+    ...previous,
+    status: "Ingresado" satisfies GuestStatus,
+    scannedAt: Date.now(),
+    arrived,
+    entry,
+  };
+  const existed = guests.some((guest) => guest.id === previous.id);
+  replaceGuest(next);
+  try {
+    await dbPutGuests([next]);
+  } catch (error) {
+    if (existed) replaceGuest(previous);
+    else {
+      guests = guests.filter((guest) => guest.id !== previous.id);
+      emit();
+    }
+    throw error;
+  }
+  return next;
+}
+
+export async function setArrived(guestId: string, count: number): Promise<Guest | null> {
+  const guest = guests.find((item) => item.id === guestId);
+  if (!guest || guest.status !== "Ingresado") return null;
+  const arrived = clampArrived(count, guest.party);
+  if (guest.arrived === arrived) return guest;
+  const next: Guest = { ...guest, arrived };
   replaceGuest(next);
   try {
     await dbPutGuests([next]);
@@ -228,13 +383,13 @@ async function admitInner(eventId: string, raw: string): Promise<AdmitResult> {
     replaceGuest(guest);
     throw error;
   }
-  return { ok: true, guest: next };
+  return next;
 }
 
 export async function revertAdmit(guestId: string): Promise<void> {
   const guest = guests.find((item) => item.id === guestId);
   if (!guest || guest.status !== "Ingresado") return;
-  const next: Guest = { ...guest, status: "Pendiente", scannedAt: null };
+  const next: Guest = { ...guest, status: "Pendiente", scannedAt: null, arrived: null, entry: null };
   replaceGuest(next);
   try {
     await dbPutGuests([next]);
@@ -273,8 +428,13 @@ export async function importBackup(file: File): Promise<string> {
   }
   const photo = parsed.event.photo ? await dataUrlToBlob(parsed.event.photo) : null;
   const event: WeddingEvent = { ...parsed.event, photo, demo: false };
-  const list = (parsed.guests ?? []).filter((guest) => guest.eventId === event.id && guest.token && guest.name);
+  const list = (parsed.guests ?? [])
+    .filter((guest) => guest.eventId === event.id && guest.token && guest.name)
+    .map(normalizeGuest);
+  const keep = new Set(list.map((guest) => guest.id));
+  const stale = guests.filter((guest) => guest.eventId === event.id && !keep.has(guest.id));
   await dbPutEvent(event);
+  for (const guest of stale) await dbDeleteGuest(guest.id);
   await dbPutGuests(list);
   events = [event, ...events.filter((item) => item.id !== event.id)];
   const others = guests.filter((guest) => guest.eventId !== event.id);
@@ -295,6 +455,7 @@ async function seedDemo() {
     secret: randomSecret(),
     demo: true,
     createdAt: Date.now(),
+    motif: "hoja",
   };
   const samples: DraftGuest[] = [
     { name: "Andrés Ríos", side: "novio", email: "", phone: "", party: 2, note: "Mesa 1" },
@@ -314,12 +475,40 @@ async function seedDemo() {
       status: "Pendiente",
       token: await makeToken(event.secret, event.id, id),
       scannedAt: null,
+      arrived: null,
+      entry: null,
     });
   }
   await dbPutEvent(event);
   await dbPutGuests(created);
   events = [event];
   guests = created;
+}
+
+function clampParty(value: number): number {
+  if (!Number.isFinite(value) || value < 1) return 1;
+  return Math.min(20, Math.round(value));
+}
+
+function clampArrived(value: number, party: number): number {
+  const max = clampParty(party);
+  if (!Number.isFinite(value) || value < 1) return max;
+  return Math.min(max, Math.round(value));
+}
+
+function normalizeGuest(raw: Guest): Guest {
+  const party = clampParty(raw.party);
+  if (raw.status !== "Ingresado") {
+    return { ...raw, party, arrived: null, entry: null };
+  }
+  const entry = raw.entry === "nombre" || raw.entry === "puerta" || raw.entry === "pase" ? raw.entry : "pase";
+  return {
+    ...raw,
+    party,
+    status: "Ingresado",
+    arrived: clampArrived(typeof raw.arrived === "number" ? raw.arrived : party, party),
+    entry,
+  };
 }
 
 function nextSaturday(): string {

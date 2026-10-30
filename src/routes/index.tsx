@@ -81,7 +81,10 @@ function Home() {
             <li>2. Sube el Excel del novio y de la novia.</li>
             <li>3. Envía cada pase por WhatsApp o correo. El invitado lo guarda en el teléfono.</li>
             <li>4. En la entrada pulsas Escanear. Si es válido, ves sus datos y queda como Ingresado.</li>
-            <li>5. Si repiten el mismo código, aunque sea una captura, la tablet lo rechaza.</li>
+            <li>5. Si no trae el código, búscalo por nombre. Si no estaba en la lista, anótalo en la puerta.</li>
+            <li>6. Si el pase dice cuatro y llegan dos, bajas el número. El total cuenta solo a quienes entraron.</li>
+            <li>7. Si repiten el mismo código, aunque sea una captura, la tablet lo rechaza.</li>
+            <li>8. Al terminar, cierra el evento. Si reciclas los códigos, las mismas imágenes vuelven a servir.</li>
           </ol>
           <div className="mt-5 flex flex-wrap gap-3 text-sm">
             <Link to="/privacidad" className="min-h-11 inline-flex items-center font-medium text-brass">
@@ -162,6 +165,7 @@ function EventCard({ event }: { event: WeddingEvent }) {
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper-2">
           <div className="h-full rounded-full bg-brass transition-[width] duration-300" style={{ width: `${pct}%` }} />
         </div>
+        {event.closed ? <p className="mt-3 text-xs font-medium text-brass">Terminado. Los códigos se pueden reciclar.</p> : null}
         {event.demo ? <p className="mt-3 text-xs font-medium text-brass">Ejemplo para probar el lector</p> : null}
       </div>
     </Link>

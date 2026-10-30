@@ -1,20 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { CalendarPlus, Mail, MessageCircle, Share2 } from "lucide-react";
-import { Btn } from "@/components/mievento/ui";
-import { peopleLabel, sidePhrase, waDigits } from "@/lib/mievento/format";
+import { Btn, fieldClass } from "@/components/mievento/ui";
+import { foldText, peopleLabel, sidePhrase, slugFile, waDigits } from "@/lib/mievento/format";
 import {
   downloadBlob,
   icsFor,
   inviteText,
+  motifForToken,
   passFromGuest,
   passLink,
+  qrCodesZip,
   qrDataUrl,
   renderPassPng,
   type PassView,
 } from "@/lib/mievento/pass";
 import { useEvent, useGuests } from "@/lib/mievento/store";
 import type { Guest, WeddingEvent } from "@/lib/mievento/types";
+
+const PAGE = 40;
 
 export const Route = createFileRoute("/evento/$eventId/pases")({
   head: () => ({ meta: [{ title: "Pases · Mi Evento" }] }),
@@ -27,10 +31,20 @@ function PassesPage() {
   const guests = useGuests(eventId);
   const [cursor, setCursor] = useState(0);
   const [note, setNote] = useState("");
+  const [query, setQuery] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  const [packing, setPacking] = useState<{ done: number; total: number } | null>(null);
+
+  const ordered = useMemo(() => {
+    const q = foldText(query.trim());
+    return [...guests]
+      .filter((guest) => !q || foldText(guest.name).includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  }, [guests, query]);
 
   if (!event) return null;
   const current = event;
-  const ordered = [...guests].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const visible = ordered.slice(0, shown);
 
   function sendNext() {
     if (ordered.length === 0) return;
@@ -39,26 +53,67 @@ function PassesPage() {
     void deliver(current, guest, "whatsapp").then((message) => setNote(message));
   }
 
+  async function downloadAll() {
+    if (guests.length === 0 || packing) return;
+    const list = [...guests].sort((a, b) => a.name.localeCompare(b.name, "es"));
+    setPacking({ done: 0, total: list.length });
+    setNote("");
+    try {
+      const blob = await qrCodesZip(list, (done, total) => setPacking({ done, total }));
+      downloadBlob(blob, `codigos-${slugFile(current)}.zip`);
+      setNote(`${list.length} códigos listos en el archivo.`);
+    } catch {
+      setNote("No se pudieron generar los códigos. Inténtalo de nuevo.");
+    } finally {
+      setPacking(null);
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-6">
       <h1 className="font-display text-4xl">Pases</h1>
       <p className="mt-2 max-w-xl text-sm text-stone">
-        Cada código va firmado en esta tablet. Al enviarlo se abre WhatsApp o el correo con el mensaje listo y el enlace del pase. Nada sale hasta que tú confirmas el envío.
+        Cada código lleva una figura al azar: hoja, naranja, pájaro o flor. Siempre la misma para ese pase. La puerta lo lee igual. Puedes generar hasta 2000 de una vez.
+        {event.closed ? " El evento está terminado: en el tablero puedes reciclar estos códigos para que las mismas imágenes vuelvan a servir." : ""}
       </p>
+      <p className="mt-3 text-sm tabular-nums text-ink-soft">{guests.length} códigos en este evento</p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Btn onClick={sendNext} disabled={ordered.length === 0}>
+        <Btn onClick={sendNext} disabled={ordered.length === 0 || packing !== null}>
           Enviar el siguiente
+        </Btn>
+        <Btn variant="ghost" onClick={() => void downloadAll()} disabled={guests.length === 0 || packing !== null}>
+          {packing ? `Generando ${packing.done} de ${packing.total}` : "Descargar todos los códigos"}
         </Btn>
         <p className="text-sm text-stone">{note}</p>
       </div>
+      {guests.length > 0 ? (
+        <input
+          className={`${fieldClass} mt-5`}
+          value={query}
+          onChange={(input) => {
+            setQuery(input.target.value);
+            setShown(PAGE);
+            setCursor(0);
+          }}
+          placeholder="Buscar invitado"
+          aria-label="Buscar invitado"
+        />
+      ) : null}
       {ordered.length === 0 ? (
-        <p className="mt-8 text-sm text-stone">Primero carga la lista de invitados.</p>
+        <p className="mt-8 text-sm text-stone">{guests.length === 0 ? "Primero carga la lista de invitados." : "Nadie coincide con esa búsqueda."}</p>
       ) : (
-        <ul className="mt-6 grid gap-4">
-          {ordered.map((guest) => (
-            <PassRow key={guest.id} event={event} guest={guest} onNote={setNote} />
-          ))}
-        </ul>
+        <>
+          <ul className="mt-4 grid gap-4">
+            {visible.map((guest) => (
+              <PassRow key={guest.id} event={event} guest={guest} onNote={setNote} />
+            ))}
+          </ul>
+          {shown < ordered.length ? (
+            <Btn variant="ghost" className="mt-4" onClick={() => setShown((value) => value + PAGE)}>
+              Ver más ({ordered.length - shown} restantes)
+            </Btn>
+          ) : null}
+        </>
       )}
     </main>
   );
@@ -74,24 +129,12 @@ function PassRow({
   onNote: (note: string) => void;
 }) {
   const pass = passFromGuest(event, guest);
-  const [qr, setQr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void qrDataUrl(guest.token, 360).then((url) => {
-      if (alive) setQr(url);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [guest.token]);
 
   return (
     <li className="rounded-3xl border border-line p-4">
       <div className="flex gap-4">
-        <div className="size-24 shrink-0 overflow-hidden rounded-2xl bg-paper-2">
-          {qr ? <img src={qr} alt="" className="h-full w-full" /> : null}
-        </div>
+        <QrThumb token={guest.token} />
         <div className="min-w-0">
           <p className="font-display text-2xl">{guest.name}</p>
           <p className="text-sm text-stone">
@@ -141,6 +184,34 @@ function PassRow({
         </p>
       ) : null}
     </li>
+  );
+}
+
+function QrThumb({ token }: { token: string }) {
+  const motif = motifForToken(token);
+  const ref = useRef<HTMLDivElement>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    let alive = true;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      void qrDataUrl(token, 280, motif).then((url) => {
+        if (alive) setQr(url);
+      });
+    });
+    observer.observe(node);
+    return () => {
+      alive = false;
+      observer.disconnect();
+    };
+  }, [token, motif]);
+  return (
+    <div ref={ref} className="size-24 shrink-0 overflow-hidden rounded-2xl bg-paper-2">
+      {qr ? <img src={qr} alt="" className="h-full w-full" /> : null}
+    </div>
   );
 }
 

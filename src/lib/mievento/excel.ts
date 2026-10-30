@@ -1,4 +1,5 @@
-import type { DraftGuest, Side } from "@/lib/mievento/types";
+import { coupleNames, entryLabel, formatLongDate, formatStamp, headsIn, sideLabel } from "@/lib/mievento/format";
+import type { DraftGuest, Guest, Side, WeddingEvent } from "@/lib/mievento/types";
 
 const NAME_KEYS = ["nombre", "name", "invitado", "invitada", "guest", "nombres"];
 const SIDE_KEYS = ["lado", "de", "origen", "familia", "side", "novio/novia", "grupo"];
@@ -6,6 +7,50 @@ const EMAIL_KEYS = ["email", "correo", "e-mail", "mail"];
 const PHONE_KEYS = ["telefono", "teléfono", "whatsapp", "celular", "phone", "movil", "móvil"];
 const PARTY_KEYS = ["personas", "pases", "pase", "boletos", "acompanantes", "acompañantes", "cupo", "cantidad"];
 const NOTE_KEYS = ["mesa", "nota", "notas", "observaciones"];
+
+export function nameKey(name: string): string {
+  return norm(name).replace(/\s+/g, " ");
+}
+
+export type NameClash = {
+  name: string;
+  inFile: number;
+  already: boolean;
+};
+
+export function nameClashes(drafts: DraftGuest[], existingNames: string[]): NameClash[] {
+  const existing = new Set(existingNames.map(nameKey).filter(Boolean));
+  const groups = new Map<string, { name: string; count: number }>();
+  for (const draft of drafts) {
+    const key = nameKey(draft.name);
+    if (!key) continue;
+    const current = groups.get(key);
+    if (current) current.count += 1;
+    else groups.set(key, { name: draft.name.trim(), count: 1 });
+  }
+  const clashes: NameClash[] = [];
+  for (const [key, group] of groups) {
+    const already = existing.has(key);
+    if (group.count > 1 || already) clashes.push({ name: group.name, inFile: group.count, already });
+  }
+  clashes.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return clashes;
+}
+
+export function withoutRepeatedNames(
+  drafts: DraftGuest[],
+  existingNames: string[],
+): { kept: DraftGuest[]; omitted: number } {
+  const seen = new Set(existingNames.map(nameKey).filter(Boolean));
+  const kept: DraftGuest[] = [];
+  for (const draft of drafts) {
+    const key = nameKey(draft.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    kept.push(draft);
+  }
+  return { kept, omitted: drafts.length - kept.length };
+}
 
 function norm(value: string): string {
   return value
@@ -146,4 +191,41 @@ export function templateCsv(): Blob {
     "Elena Cruz,novia,2,elena@correo.com,5587654321,4",
   ].join("\n");
   return new Blob([`\uFEFF${body}\n`], { type: "text/csv;charset=utf-8" });
+}
+
+export function closingCsv(event: WeddingEvent, list: Guest[]): Blob {
+  const admitted = list.filter((guest) => guest.status === "Ingresado").sort((a, b) => (a.scannedAt ?? 0) - (b.scannedAt ?? 0));
+  const pending = list
+    .filter((guest) => guest.status !== "Ingresado")
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const inside = admitted.reduce((sum, guest) => sum + headsIn(guest), 0);
+  const lines = [
+    ["Evento", coupleNames(event)],
+    ["Fecha", formatLongDate(event.date)],
+    ["Lugar", event.place || ""],
+    ["Invitaciones que ingresaron", String(admitted.length)],
+    ["Personas dentro", String(inside)],
+    ["Invitaciones pendientes", String(pending.length)],
+    [],
+    ["Nombre", "Lado", "En el pase", "Entraron", "Estado", "Hora", "Cómo entró", "Correo", "Teléfono", "Mesa"],
+    ...[...admitted, ...pending].map((guest) => [
+      guest.name,
+      sideLabel(guest.side),
+      String(guest.party),
+      guest.status === "Ingresado" ? String(headsIn(guest)) : "0",
+      guest.status,
+      guest.scannedAt ? formatStamp(guest.scannedAt) : "",
+      entryLabel(guest.entry),
+      guest.email,
+      guest.phone,
+      guest.note,
+    ]),
+  ];
+  const body = lines.map((row) => row.map(csvCell).join(";")).join("\r\n");
+  return new Blob([`\uFEFF${body}\r\n`], { type: "text/csv;charset=utf-8" });
+}
+
+function csvCell(value: string): string {
+  if (/[;"\r\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
 }

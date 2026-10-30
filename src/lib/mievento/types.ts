@@ -1,5 +1,7 @@
 export type Side = "novio" | "novia";
 export type GuestStatus = "Pendiente" | "Ingresado";
+export type EntryKind = "pase" | "nombre" | "puerta";
+export type QrMotif = "hoja" | "citrico" | "ave" | "flor";
 
 export type WeddingEvent = {
   id: string;
@@ -12,6 +14,8 @@ export type WeddingEvent = {
   secret: string;
   demo: boolean;
   createdAt: number;
+  motif?: QrMotif;
+  closed?: boolean;
 };
 
 export type Guest = {
@@ -26,13 +30,15 @@ export type Guest = {
   status: GuestStatus;
   token: string;
   scannedAt: number | null;
+  arrived: number | null;
+  entry: EntryKind | null;
 };
 
 export type AdmitResult =
   | { ok: true; guest: Guest }
   | {
       ok: false;
-      reason: "invalid" | "other-event" | "used";
+      reason: "invalid" | "other-event" | "used" | "closed";
       guest?: Guest;
       message: string;
     };

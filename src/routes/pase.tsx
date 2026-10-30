@@ -20,7 +20,7 @@ function PassPage() {
     setPass(next);
     setReady(true);
     if (!next) return;
-    void qrDataUrl(next.token).then(setQr).catch(() => setQr(null));
+    void qrDataUrl(next.token, 640, next.motif).then(setQr).catch(() => setQr(null));
   }, []);
 
   if (!ready) {

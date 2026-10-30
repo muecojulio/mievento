@@ -8,4 +8,8 @@ declare module "qrcode" {
       color?: { dark?: string; light?: string };
     },
   ): Promise<string>;
+  export function create(
+    text: string,
+    options?: { errorCorrectionLevel?: "L" | "M" | "Q" | "H" },
+  ): { modules: { size: number; get: (row: number, col: number) => number } };
 }

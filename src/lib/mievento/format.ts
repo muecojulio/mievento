@@ -1,4 +1,4 @@
-import type { Guest, Side, WeddingEvent } from "@/lib/mievento/types";
+import type { EntryKind, Guest, Side, WeddingEvent } from "@/lib/mievento/types";
 
 export function formatLongDate(iso: string): string {
   if (!iso) return "Fecha por confirmar";
@@ -20,6 +20,19 @@ export function formatClock(ts: number): string {
   }).format(new Date(ts));
 }
 
+export function formatStamp(ts: number): string {
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(ts));
+}
+
+export function foldText(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
 export function coupleNames(event: Pick<WeddingEvent, "groom" | "bride">): string {
   return `${event.groom} y ${event.bride}`;
 }
@@ -32,8 +45,16 @@ export function sidePhrase(side: Side): string {
   return side === "novia" ? "Invitado de la novia" : "Invitado del novio";
 }
 
-export function peopleLabel(count: number): string {
-  return count === 1 ? "1 persona" : `${count} personas`;
+export function entryLabel(entry: EntryKind | null): string {
+  if (entry === "nombre") return "Búsqueda";
+  if (entry === "puerta") return "En la puerta";
+  if (entry === "pase") return "Pase";
+  return "";
+}
+
+export function headsIn(guest: Guest): number {
+  if (guest.status !== "Ingresado") return 0;
+  return guest.arrived ?? guest.party;
 }
 
 export function waDigits(phone: string): string | null {
@@ -45,14 +66,20 @@ export function waDigits(phone: string): string | null {
   return digits;
 }
 
+export function peopleLabel(count: number): string {
+  return count === 1 ? "1 persona" : `${count} personas`;
+}
+
 export function tally(guests: Guest[]) {
   const ofSide = (side: Side) => guests.filter((guest) => guest.side === side);
   const admitted = (list: Guest[]) => list.filter((guest) => guest.status === "Ingresado");
-  const heads = (list: Guest[]) => list.reduce((sum, guest) => sum + guest.party, 0);
+  const invited = (list: Guest[]) => list.reduce((sum, guest) => sum + guest.party, 0);
+  const inside = (list: Guest[]) => list.reduce((sum, guest) => sum + headsIn(guest), 0);
   const novio = ofSide("novio");
   const novia = ofSide("novia");
   const novioIn = admitted(novio);
   const noviaIn = admitted(novia);
+  const pending = guests.filter((guest) => guest.status !== "Ingresado");
   const allIn = admitted(guests);
   return {
     novioInvites: novio.length,
@@ -61,12 +88,12 @@ export function tally(guests: Guest[]) {
     novioIn: novioIn.length,
     noviaIn: noviaIn.length,
     totalIn: allIn.length,
-    novioPeople: heads(novioIn),
-    noviaPeople: heads(noviaIn),
-    totalPeople: heads(allIn),
-    pendingInvites: guests.length - allIn.length,
-    pendingPeople: heads(guests) - heads(allIn),
-    expectedPeople: heads(guests),
+    novioPeople: inside(novio),
+    noviaPeople: inside(novia),
+    totalPeople: inside(guests),
+    pendingInvites: pending.length,
+    pendingPeople: invited(pending),
+    expectedPeople: invited(guests),
   };
 }
 
