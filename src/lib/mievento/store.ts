@@ -1,7 +1,17 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { makeToken, parseToken, randomId, randomSecret, safeEqual, signBody } from "@/lib/mievento/crypto";
 import { dbDeleteEvent, dbDeleteGuest, dbGetAll, dbPutEvent, dbPutGuests } from "@/lib/mievento/db";
-import type { AdmitResult, DraftGuest, EntryKind, Guest, GuestStatus, ImportReport, Side, WeddingEvent } from "@/lib/mievento/types";
+import type {
+  AdmitResult,
+  DraftGuest,
+  EntryKind,
+  Guest,
+  GuestStatus,
+  ImportReport,
+  SendChannel,
+  Side,
+  WeddingEvent,
+} from "@/lib/mievento/types";
 
 const EMPTY_EVENTS: WeddingEvent[] = [];
 const EMPTY_GUESTS: Guest[] = [];
@@ -266,7 +276,9 @@ async function admitInner(eventId: string, raw: string): Promise<AdmitResult> {
       ok: false,
       reason: "used",
       guest,
-      message: "Error: Este código ya fue utilizado",
+      duplicate: true,
+      firstEntryAt: guest.scannedAt,
+      message: "Código ya utilizado",
     };
   }
   const next = await commitAdmit(guest, "pase", guest.party);
@@ -292,7 +304,14 @@ async function admitNamed(guestId: string, arrived?: number): Promise<AdmitResul
     return { ok: false, reason: "closed", guest, message: "El evento ya terminó. El paso no está autorizado." };
   }
   if (guest.status === "Ingresado") {
-    return { ok: false, reason: "used", guest, message: "Esta persona ya ingresó" };
+    return {
+      ok: false,
+      reason: "used",
+      guest,
+      duplicate: true,
+      firstEntryAt: guest.scannedAt,
+      message: "Esta persona ya ingresó",
+    };
   }
   const next = await commitAdmit(guest, "nombre", clampArrived(arrived ?? guest.party, guest.party));
   return { ok: true, guest: next };
@@ -376,6 +395,25 @@ export async function setArrived(guestId: string, count: number): Promise<Guest 
   const arrived = clampArrived(count, guest.party);
   if (guest.arrived === arrived) return guest;
   const next: Guest = { ...guest, arrived };
+  replaceGuest(next);
+  try {
+    await dbPutGuests([next]);
+  } catch (error) {
+    replaceGuest(guest);
+    throw error;
+  }
+  return next;
+}
+
+/** Deja constancia de que el pase salió por WhatsApp, correo o compartir. */
+export async function markGuestSent(
+  guestId: string,
+  via: SendChannel,
+  at: number = Date.now(),
+): Promise<Guest | null> {
+  const guest = guests.find((item) => item.id === guestId);
+  if (!guest || guest.sentAt === at) return guest ?? null;
+  const next: Guest = { ...guest, sentAt: at, sentVia: via };
   replaceGuest(next);
   try {
     await dbPutGuests([next]);
@@ -498,13 +536,20 @@ function clampArrived(value: number, party: number): number {
 
 function normalizeGuest(raw: Guest): Guest {
   const party = clampParty(raw.party);
+  const sentAt = typeof raw.sentAt === "number" && raw.sentAt > 0 ? raw.sentAt : null;
+  const sentVia =
+    raw.sentVia === "whatsapp" || raw.sentVia === "correo" || raw.sentVia === "compartir"
+      ? raw.sentVia
+      : null;
   if (raw.status !== "Ingresado") {
-    return { ...raw, party, arrived: null, entry: null };
+    return { ...raw, party, sentAt, sentVia, arrived: null, entry: null };
   }
   const entry = raw.entry === "nombre" || raw.entry === "puerta" || raw.entry === "pase" ? raw.entry : "pase";
   return {
     ...raw,
     party,
+    sentAt,
+    sentVia,
     status: "Ingresado",
     arrived: clampArrived(typeof raw.arrived === "number" ? raw.arrived : party, party),
     entry,

@@ -150,6 +150,9 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    // Live preview is served from a per-session proxy host (*.e2b.app), so the
+    // dev server must not enforce Vite's host allowlist. Deploys use Nitro.
+    allowedHosts: true,
   },
   preview: {
     host: "127.0.0.1",

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PaseRouteImport } from './routes/pase'
 import { Route as PrivacidadRouteImport } from './routes/privacidad'
+import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as EventoEventIdRouteImport } from './routes/evento.$eventId'
 import { Route as EventoEventIdIndexRouteImport } from './routes/evento.$eventId.index'
 import { Route as EventoEventIdEscanerRouteImport } from './routes/evento.$eventId.escaner'
@@ -31,6 +32,11 @@ const PaseRoute = PaseRouteImport.update({
 const PrivacidadRoute = PrivacidadRouteImport.update({
   id: '/privacidad',
   path: '/privacidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WalletRoute = WalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EventoEventIdRoute = EventoEventIdRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/pase': typeof PaseRoute
   '/privacidad': typeof PrivacidadRoute
+  '/wallet': typeof WalletRoute
   '/evento/$eventId': typeof EventoEventIdRouteWithChildren
   '/evento/$eventId/escaner': typeof EventoEventIdEscanerRoute
   '/evento/$eventId/invitados': typeof EventoEventIdInvitadosRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/pase': typeof PaseRoute
   '/privacidad': typeof PrivacidadRoute
+  '/wallet': typeof WalletRoute
   '/evento/$eventId/escaner': typeof EventoEventIdEscanerRoute
   '/evento/$eventId/invitados': typeof EventoEventIdInvitadosRoute
   '/evento/$eventId/pases': typeof EventoEventIdPasesRoute
@@ -83,6 +91,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/pase': typeof PaseRoute
   '/privacidad': typeof PrivacidadRoute
+  '/wallet': typeof WalletRoute
   '/evento/$eventId': typeof EventoEventIdRouteWithChildren
   '/evento/$eventId/escaner': typeof EventoEventIdEscanerRoute
   '/evento/$eventId/invitados': typeof EventoEventIdInvitadosRoute
@@ -95,6 +104,7 @@ export interface FileRouteTypes {
     | '/'
     | '/pase'
     | '/privacidad'
+    | '/wallet'
     | '/evento/$eventId'
     | '/evento/$eventId/escaner'
     | '/evento/$eventId/invitados'
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
     | '/'
     | '/pase'
     | '/privacidad'
+    | '/wallet'
     | '/evento/$eventId/escaner'
     | '/evento/$eventId/invitados'
     | '/evento/$eventId/pases'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
     | '/'
     | '/pase'
     | '/privacidad'
+    | '/wallet'
     | '/evento/$eventId'
     | '/evento/$eventId/escaner'
     | '/evento/$eventId/invitados'
@@ -125,6 +137,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PaseRoute: typeof PaseRoute
   PrivacidadRoute: typeof PrivacidadRoute
+  WalletRoute: typeof WalletRoute
   EventoEventIdRoute: typeof EventoEventIdRouteWithChildren
 }
 
@@ -149,6 +162,13 @@ declare module '@tanstack/react-router' {
       path: '/privacidad'
       fullPath: '/privacidad'
       preLoaderRoute: typeof PrivacidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/wallet': {
+      id: '/wallet'
+      path: '/wallet'
+      fullPath: '/wallet'
+      preLoaderRoute: typeof WalletRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/evento/$eventId': {
@@ -211,6 +231,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PaseRoute: PaseRoute,
   PrivacidadRoute: PrivacidadRoute,
+  WalletRoute: WalletRoute,
   EventoEventIdRoute: EventoEventIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport

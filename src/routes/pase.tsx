@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { CalendarPlus, Download } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { CalendarPlus, Download, Wallet } from "lucide-react";
 import { Btn, Mark } from "@/components/mievento/ui";
 import { formatLongDate, peopleLabel, sidePhrase } from "@/lib/mievento/format";
 import { downloadBlob, icsFor, qrDataUrl, readPassHash, renderPassPng, type PassView } from "@/lib/mievento/pass";
+import { isInWallet, savePassToWallet } from "@/lib/mievento/wallet";
 
 export const Route = createFileRoute("/pase")({
   head: () => ({ meta: [{ title: "Pase · Mi Evento" }] }),
@@ -14,12 +15,15 @@ function PassPage() {
   const [pass, setPass] = useState<PassView | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [walletNote, setWalletNote] = useState("");
 
   useEffect(() => {
     const next = readPassHash();
     setPass(next);
     setReady(true);
     if (!next) return;
+    setSaved(isInWallet(next.token));
     void qrDataUrl(next.token, 640, next.motif).then(setQr).catch(() => setQr(null));
   }, []);
 
@@ -65,6 +69,27 @@ function PassPage() {
       </article>
       <div className="mt-4 grid gap-2">
         <Btn
+          data-testid="save-wallet"
+          onClick={() => {
+            const result = savePassToWallet(pass);
+            setSaved(true);
+            setWalletNote(
+              result.added
+                ? "Guardado en tu Wallet. Ábrelo sin internet."
+                : "Este pase ya estaba en tu Wallet.",
+            );
+          }}
+        >
+          <Wallet className="size-4" />
+          {saved ? "Guardado en Wallet" : "Guardar en Wallet"}
+        </Btn>
+        {walletNote ? (
+          <p className="px-2 text-center text-sm text-sage" data-testid="wallet-note">
+            {walletNote}
+          </p>
+        ) : null}
+        <Btn
+          variant="ghost"
           onClick={async () => {
             const blob = await renderPassPng(pass);
             downloadBlob(blob, "pase-mi-evento.png");
@@ -82,8 +107,15 @@ function PassPage() {
           <CalendarPlus className="size-4" />
           Añadir al calendario
         </Btn>
+        <Link
+          to="/wallet"
+          className="inline-flex min-h-11 items-center justify-center text-sm font-medium text-brass"
+        >
+          Abrir mi Wallet
+        </Link>
         <p className="px-2 text-center text-sm text-stone">
-          Guarda la imagen en Fotos. El calendario del teléfono conserva la fecha, el día y los nombres.
+          El Wallet guarda el código con la fecha y los nombres de los novios y funciona sin internet. La
+          imagen y el calendario quedan también en el teléfono.
         </p>
       </div>
     </main>
