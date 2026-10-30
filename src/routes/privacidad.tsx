@@ -57,6 +57,19 @@ function Privacy() {
           </p>
         </section>
         <section>
+          <h2 className="font-display text-2xl text-ink">Ayudas en línea opcionales</h2>
+          <p className="mt-2">
+            Al crear el evento puedes buscar el lugar para tener clima del día, mapa y botones de “cómo llegar”
+            en los pases, y la app avisa si la fecha cae en feriado. Esas ayudas usan servicios públicos sin
+            cuenta ni llave (OpenStreetMap/Photon para lugares, Open-Meteo para el clima y Nager.Date para
+            feriados de México). Lo único que sale de la tablet es el texto del lugar que escribes, sus
+            coordenadas y la fecha del evento. <strong>Nunca se envían nombres, teléfonos, correos ni códigos de
+            invitados.</strong> Si no hay internet —o si prefieres escribir el lugar a mano— todo lo demás
+            funciona igual: la lista, los pases, el Wallet y el lector no dependen de esas ayudas. El detalle
+            completo está en el archivo <code>APIS.md</code> del repositorio.
+          </p>
+        </section>
+        <section>
           <h2 className="font-display text-2xl text-ink">Qué no hace esta app</h2>
           <p className="mt-2">
             No incluye rastreadores, no vende datos y no manda la lista a servicios externos. Las letras se cargan con la propia aplicación para que también sirva sin conexión después de la primera visita.

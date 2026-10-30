@@ -24,6 +24,12 @@ cuenta ni servidor de invitados.
   imagen o agregar al calendario.
 - **Cierre**: CSV de quién entró y quién no, copia de seguridad y opción de
   reciclar los códigos de un evento terminado.
+- **Ayudas en línea (opcionales, sin llave ni cuenta)**: al escribir el lugar se
+  puede buscar en OpenStreetMap para tener el clima de ese día (Open-Meteo), el
+  mapa y botones de «cómo llegar» en cada pase; aviso si la fecha es feriado en
+  México (Nager.Date) y botón de Google Calendar junto al `.ics`. Solo salen de
+  la tablet el lugar y la fecha del evento —nunca la lista— y sin internet todo
+  sigue igual. Detalle completo en [APIS.md](./APIS.md).
 
 ## Desarrollo
 

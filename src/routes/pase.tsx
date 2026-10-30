@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CalendarPlus, Download, Wallet } from "lucide-react";
 import { Btn, Mark } from "@/components/mievento/ui";
+import { DirectionsLinks, PassWeatherLine } from "@/components/mievento/place-extras";
 import { formatLongDate, peopleLabel, sidePhrase } from "@/lib/mievento/format";
+import { googleCalendarUrl } from "@/lib/mievento/public-apis";
 import { downloadBlob, icsFor, qrDataUrl, readPassHash, renderPassPng, type PassView } from "@/lib/mievento/pass";
 import { isInWallet, savePassToWallet } from "@/lib/mievento/wallet";
 
@@ -42,6 +44,14 @@ function PassPage() {
   }
 
   const when = [formatLongDate(pass.date), pass.time].filter(Boolean).join(" · ");
+  const googleCalendar = googleCalendarUrl({
+    title: pass.groom && pass.bride ? `Boda de ${pass.groom} y ${pass.bride}` : "Mi Evento",
+    details: `Pase de ${pass.name}. ${sidePhrase(pass.side)}. Muestra tu código en la entrada.`,
+    location: pass.place,
+    date: pass.date,
+    time: pass.time,
+    timezone: pass.tz || undefined,
+  });
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-md px-4 py-8">
@@ -57,6 +67,8 @@ function PassPage() {
           </h1>
           <p className="mt-2 text-sm text-ink-soft">{when}</p>
           {pass.place ? <p className="text-sm text-stone">{pass.place}</p> : null}
+          <PassWeatherLine pass={pass} />
+          <DirectionsLinks place={pass} className="mt-3" />
           <p className="mt-6 font-display text-3xl">{pass.name}</p>
           <p className="mt-1 text-sm text-stone">
             {sidePhrase(pass.side)} · {peopleLabel(pass.party)}
@@ -107,6 +119,17 @@ function PassPage() {
           <CalendarPlus className="size-4" />
           Añadir al calendario
         </Btn>
+        {googleCalendar ? (
+          <a
+            href={googleCalendar}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-line bg-paper px-5 text-sm font-medium text-ink"
+          >
+            <CalendarPlus className="size-4" />
+            Añadir a Google Calendar
+          </a>
+        ) : null}
         <Link
           to="/wallet"
           className="inline-flex min-h-11 items-center justify-center text-sm font-medium text-brass"

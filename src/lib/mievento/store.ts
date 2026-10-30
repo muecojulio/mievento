@@ -96,6 +96,9 @@ export async function createEvent(input: {
   date: string;
   time: string;
   place: string;
+  placeLat?: number | null;
+  placeLon?: number | null;
+  placeTz?: string;
   photo: Blob | null;
 }): Promise<WeddingEvent> {
   const event: WeddingEvent = {
@@ -105,6 +108,9 @@ export async function createEvent(input: {
     date: input.date,
     time: input.time || "18:00",
     place: input.place.trim(),
+    placeLat: input.placeLat ?? null,
+    placeLon: input.placeLon ?? null,
+    placeTz: input.placeTz ?? "",
     photo: input.photo,
     secret: randomSecret(),
     demo: false,
@@ -159,7 +165,9 @@ export async function recycleCodes(eventId: string): Promise<number> {
 
 export async function updateEvent(
   eventId: string,
-  patch: Partial<Pick<WeddingEvent, "groom" | "bride" | "date" | "time" | "place" | "photo">>,
+  patch: Partial<
+    Pick<WeddingEvent, "groom" | "bride" | "date" | "time" | "place" | "placeLat" | "placeLon" | "placeTz" | "photo">
+  >,
 ): Promise<void> {
   const current = events.find((event) => event.id === eventId);
   if (!current) return;
@@ -489,6 +497,11 @@ async function seedDemo() {
     date: nextSaturday(),
     time: "18:00",
     place: "Jardín del centro",
+    // Coordenadas del centro de la CDMX para que el ejemplo también muestre
+    // clima, mapa y "cómo llegar" (ayudas en línea opcionales).
+    placeLat: 19.43261,
+    placeLon: -99.13321,
+    placeTz: "America/Mexico_City",
     photo: null,
     secret: randomSecret(),
     demo: true,

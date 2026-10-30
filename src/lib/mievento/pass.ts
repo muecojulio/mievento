@@ -2,6 +2,7 @@ import { previewPathPrefix } from "@/lib/preview-path-prefix";
 import { zipStore } from "@/lib/mievento/zip";
 import type { Guest, QrMotif, WeddingEvent } from "@/lib/mievento/types";
 import { coupleNames, formatLongDate, sidePhrase } from "@/lib/mievento/format";
+import { addHoursToDateTime, mapsUrls, validCoords } from "@/lib/mievento/public-apis";
 
 export type PassView = {
   token: string;
@@ -11,6 +12,14 @@ export type PassView = {
   date: string;
   time: string;
   place: string;
+  /**
+   * Ubicación exacta del lugar (si el evento la tiene): permite "cómo llegar",
+   * el clima del día y el pin del calendario en el pase/Wallet del invitado.
+   * Opcional: los enlaces de pases ya enviados no la traen y siguen sirviendo.
+   */
+  lat?: number | null;
+  lon?: number | null;
+  tz?: string;
   side: "novio" | "novia";
   party: number;
   motif: QrMotif;
@@ -25,6 +34,9 @@ export function passFromGuest(event: WeddingEvent, guest: Guest): PassView {
     date: event.date,
     time: event.time,
     place: event.place,
+    lat: event.placeLat ?? null,
+    lon: event.placeLon ?? null,
+    tz: event.placeTz ?? "",
     side: guest.side,
     party: guest.party,
     motif: motifForToken(guest.token),
@@ -40,6 +52,11 @@ export function passLink(pass: PassView): string {
   if (pass.date) params.set("d", pass.date);
   if (pass.time) params.set("h", pass.time);
   if (pass.place) params.set("p", pass.place);
+  if (validCoords(pass.lat, pass.lon)) {
+    params.set("la", String(pass.lat));
+    params.set("lo", String(pass.lon));
+  }
+  if (pass.tz) params.set("z", pass.tz);
   params.set("s", pass.side);
   params.set("c", String(pass.party));
   params.set("m", pass.motif);
@@ -59,6 +76,9 @@ export function readPassHash(): PassView | null {
   const token = params.get("t")?.trim();
   if (!token) return null;
   const party = Number(params.get("c") || "1");
+  const lat = Number(params.get("la"));
+  const lon = Number(params.get("lo"));
+  const hasCoords = validCoords(lat, lon);
   return {
     token,
     name: params.get("n")?.trim() || "Invitado",
@@ -67,6 +87,9 @@ export function readPassHash(): PassView | null {
     date: params.get("d")?.trim() || "",
     time: params.get("h")?.trim() || "",
     place: params.get("p")?.trim() || "",
+    lat: hasCoords ? lat : null,
+    lon: hasCoords ? lon : null,
+    tz: params.get("z")?.trim() || "",
     side: params.get("s") === "novia" ? "novia" : "novio",
     party: Number.isFinite(party) && party > 0 ? Math.min(20, Math.round(party)) : 1,
     motif: motifForToken(token),
@@ -76,10 +99,12 @@ export function readPassHash(): PassView | null {
 export function inviteText(pass: PassView): string {
   const when = [formatLongDate(pass.date), pass.time].filter(Boolean).join(" · ");
   const who = pass.groom && pass.bride ? coupleNames(pass) : "la celebración";
+  const directions = mapsUrls({ place: pass.place, lat: pass.lat, lon: pass.lon });
   return [
     `Hola ${pass.name}.`,
     `Tu pase para ${who}${when ? ` — ${when}` : ""}.`,
     pass.place ? `Lugar: ${pass.place}.` : "",
+    directions ? `Cómo llegar: ${directions.google}` : "",
     `${sidePhrase(pass.side)}. ${pass.party === 1 ? "1 persona." : `${pass.party} personas.`}`,
     "Muestra el código en la entrada. Es de un solo uso.",
     passLink(pass),
@@ -285,9 +310,20 @@ export async function qrDataUrl(text: string, size = 640, motif?: QrMotif | null
 export function icsFor(pass: PassView): string {
   const day = pass.date.replaceAll("-", "");
   const time = (pass.time || "18:00").replace(":", "") + "00";
+  // Antes el fin era igual al inicio (duración cero): ahora el calendario
+  // reserva 4 horas, cuidando eventos que cruzan la medianoche.
+  const end = addHoursToDateTime(pass.date, pass.time || "18:00", 4);
+  const endDay = end.date.replaceAll("-", "");
+  const endTime = end.time.replace(":", "") + "00";
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   const summary = pass.groom && pass.bride ? `Boda de ${coupleNames(pass)}` : "Mi Evento";
-  const description = `Pase de ${pass.name}. ${sidePhrase(pass.side)}.`;
+  const directions = mapsUrls({ place: pass.place, lat: pass.lat, lon: pass.lon });
+  const description = [
+    `Pase de ${pass.name}. ${sidePhrase(pass.side)}.`,
+    directions ? `Cómo llegar: ${directions.google}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -297,10 +333,12 @@ export function icsFor(pass: PassView): string {
     `UID:${pass.token}@mievento`,
     `DTSTAMP:${stamp}`,
     day ? `DTSTART:${day}T${time}` : "",
-    day ? `DTEND:${day}T${time}` : "",
+    day ? `DTEND:${endDay}T${endTime}` : "",
     `SUMMARY:${escapeIcs(summary)}`,
     `DESCRIPTION:${escapeIcs(description)}`,
     pass.place ? `LOCATION:${escapeIcs(pass.place)}` : "",
+    // GEO (RFC 5545): el calendario puede mostrar el pin sin ninguna API key.
+    validCoords(pass.lat, pass.lon) ? `GEO:${pass.lat};${pass.lon}` : "",
     "END:VEVENT",
     "END:VCALENDAR",
   ]

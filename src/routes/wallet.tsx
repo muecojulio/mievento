@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, CalendarPlus, Download, Trash2 } from "lucide-react";
 import { Mark, OnlineNote } from "@/components/mievento/ui";
+import { DirectionsLinks, PassWeatherLine } from "@/components/mievento/place-extras";
 import { formatLongDate, peopleLabel, sidePhrase } from "@/lib/mievento/format";
+import { googleCalendarUrl } from "@/lib/mievento/public-apis";
 import { downloadBlob, icsFor, qrDataUrl } from "@/lib/mievento/pass";
 import {
   removeFromWallet,
@@ -91,6 +93,14 @@ function WalletCard({ pass }: { pass: WalletPass }) {
   }, [pass.token, pass.motif]);
 
   const when = [formatLongDate(pass.date), pass.time].filter(Boolean).join(" · ");
+  const googleCalendar = googleCalendarUrl({
+    title: pass.groom && pass.bride ? `Boda de ${pass.groom} y ${pass.bride}` : "Mi Evento",
+    details: `Pase de ${pass.name}. ${sidePhrase(pass.side)}. Muestra tu código en la entrada.`,
+    location: pass.place,
+    date: pass.date,
+    time: pass.time,
+    timezone: pass.tz || undefined,
+  });
 
   async function saveImage() {
     setBusy(true);
@@ -134,6 +144,10 @@ function WalletCard({ pass }: { pass: WalletPass }) {
             )}
           </div>
         </div>
+        <div className="mt-3 grid gap-3">
+          <PassWeatherLine pass={pass} dark />
+          <DirectionsLinks place={pass} dark />
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -155,6 +169,17 @@ function WalletCard({ pass }: { pass: WalletPass }) {
             <CalendarPlus className="size-4" />
             Calendario
           </button>
+          {googleCalendar ? (
+            <a
+              href={googleCalendar}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex min-h-11 items-center gap-2 rounded-full border border-paper/40 px-4 text-sm font-medium text-paper"
+            >
+              <CalendarPlus className="size-4" />
+              Google Calendar
+            </a>
+          ) : null}
           <button
             type="button"
             className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium text-paper-2"
