@@ -32,7 +32,12 @@ export type Guest = {
   scannedAt: number | null;
   arrived: number | null;
   entry: EntryKind | null;
+  /** Última vez que se le envió el pase (WhatsApp, correo o compartir). */
+  sentAt?: number | null;
+  sentVia?: SendChannel | null;
 };
+
+export type SendChannel = "whatsapp" | "correo" | "compartir";
 
 export type AdmitResult =
   | { ok: true; guest: Guest }
@@ -41,6 +46,10 @@ export type AdmitResult =
       reason: "invalid" | "other-event" | "used" | "closed";
       guest?: Guest;
       message: string;
+      /** El pase ya se había usado: lectura repetida (posible captura de pantalla). */
+      duplicate?: boolean;
+      /** Hora del primer ingreso, para el aviso de la puerta. */
+      firstEntryAt?: number | null;
     };
 
 export type DraftGuest = {

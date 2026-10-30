@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Btn, fieldClass } from "@/components/mievento/ui";
 import { downloadBlob } from "@/lib/mievento/pass";
 import { parseGuestFile, templateCsv, nameClashes, withoutRepeatedNames, type NameClash } from "@/lib/mievento/excel";
@@ -67,6 +67,36 @@ function GuestsPage() {
     setReport(parts.join(" "));
   }
 
+  async function startImport(file: File | undefined, forcedSide: Side | null) {
+    if (!file) return;
+    setBusy(true);
+    setReport("");
+    try {
+      const parsed = await parseGuestFile(file);
+      const drafts = forcedSide
+        ? parsed.drafts.map((draft) => ({ ...draft, side: forcedSide }))
+        : parsed.drafts;
+      if (drafts.length === 0) {
+        setReport("No encontré nombres. Revisa que la primera fila tenga la columna nombre.");
+        return;
+      }
+      const clashes = nameClashes(
+        drafts,
+        guests.map((guest) => guest.name),
+      );
+      if (clashes.length > 0) {
+        setPending({ drafts, skipped: parsed.skipped, clashes });
+        setReport("");
+        return;
+      }
+      await commit(drafts, parsed.skipped, 0);
+    } catch {
+      setReport("No se pudo leer ese archivo. Prueba con .xlsx o .csv.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-6">
       <h1 className="font-display text-4xl">Invitados</h1>
@@ -74,41 +104,44 @@ function GuestsPage() {
         Sube un Excel o CSV, en una hoja con la columna lado o en dos hojas llamadas Novio y Novia. Si un nombre se repite, te aviso antes de crear los códigos. La lista admite 2000.
       </p>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <label className="inline-flex min-h-11 cursor-pointer items-center rounded-full bg-brass px-5 text-sm font-medium text-paper">
-          {busy ? "Leyendo…" : "Subir Excel"}
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {(
+          [
+            ["novio", "Excel del novio"],
+            ["novia", "Excel de la novia"],
+          ] as const
+        ).map(([side, label]) => (
+          <label
+            key={side}
+            className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-full bg-brass px-5 text-sm font-medium text-paper"
+          >
+            {busy ? "Leyendo…" : label}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv,text/csv"
+              className="sr-only"
+              disabled={busy}
+              onChange={(input) => {
+                const file = input.target.files?.[0];
+                input.target.value = "";
+                void startImport(file, side);
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <label className="inline-flex min-h-11 cursor-pointer items-center rounded-full border border-line px-5 text-sm font-medium text-ink">
+          {busy ? "Leyendo…" : "Excel con los dos lados"}
           <input
             type="file"
             accept=".xlsx,.xls,.csv,text/csv"
             className="sr-only"
             disabled={busy}
-            onChange={async (input) => {
+            onChange={(input) => {
               const file = input.target.files?.[0];
               input.target.value = "";
-              if (!file) return;
-              setBusy(true);
-              setReport("");
-              try {
-                const parsed = await parseGuestFile(file);
-                if (parsed.drafts.length === 0) {
-                  setReport("No encontré nombres. Revisa que la primera fila tenga la columna nombre.");
-                  return;
-                }
-                const clashes = nameClashes(
-                  parsed.drafts,
-                  guests.map((guest) => guest.name),
-                );
-                if (clashes.length > 0) {
-                  setPending({ drafts: parsed.drafts, skipped: parsed.skipped, clashes });
-                  setReport("");
-                  return;
-                }
-                await commit(parsed.drafts, parsed.skipped, 0);
-              } catch {
-                setReport("No se pudo leer ese archivo. Prueba con .xlsx o .csv.");
-              } finally {
-                setBusy(false);
-              }
+              void startImport(file, null);
             }}
           />
         </label>
@@ -122,7 +155,16 @@ function GuestsPage() {
           Vaciar lista
         </Btn>
       </div>
-      {report ? <p className="mt-3 text-sm text-ink-soft">{report}</p> : null}
+      {report ? (
+        <div className="mt-3 text-sm text-ink-soft">
+          <p>{report}</p>
+          {guests.length > 0 ? (
+            <Link to="/evento/$eventId/pases" params={{ eventId }} className="mt-2 inline-flex min-h-11 items-center font-medium text-brass">
+              Enviar los pases por WhatsApp o correo
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       <input
         className={`${fieldClass} mt-4`}

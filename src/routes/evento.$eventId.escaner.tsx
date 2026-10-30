@@ -530,12 +530,24 @@ function ScanVerdict({
         </>
       ) : (
         <>
-          <h2 className="font-display text-3xl leading-tight break-words">{result.message}</h2>
+          <p className="text-sm font-medium">
+            {result.duplicate ? "Alerta de la puerta · código repetido" : "Aviso de la puerta"}
+          </p>
+          <h2 className="mt-1 font-display text-3xl leading-tight break-words">{result.message}</h2>
           {result.guest ? (
-            <p className="mt-3 text-base">
-              {result.guest.name}
-              {result.guest.scannedAt ? ` ingresó a las ${formatClock(result.guest.scannedAt)}` : "."}
-            </p>
+            <h3 className="mt-3 font-display text-2xl">{result.guest.name}</h3>
+          ) : null}
+          {result.duplicate ? (
+            <div data-testid="duplicate-alert">
+              <p className="mt-2 text-base">
+                {result.firstEntryAt
+                  ? `Primera entrada a las ${formatClock(result.firstEntryAt)}.`
+                  : "Este pase ya se usó."}
+              </p>
+              <p className="mt-1 text-sm">
+                Puede ser una captura de pantalla del mismo código. No se permite un segundo ingreso.
+              </p>
+            </div>
           ) : null}
           <p className="mt-2 text-sm">El paso no está autorizado.</p>
           <Btn variant="ink" className="mt-4" onClick={onAgain}>

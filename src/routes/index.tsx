@@ -79,7 +79,7 @@ function Home() {
           <ol className="mt-4 grid gap-3 text-sm text-ink-soft">
             <li>1. Crea el evento, con fecha, hora y una foto.</li>
             <li>2. Sube el Excel del novio y de la novia.</li>
-            <li>3. Envía cada pase por WhatsApp o correo. El invitado lo guarda en el teléfono.</li>
+            <li>3. Envía cada pase por WhatsApp o correo. El invitado lo guarda en su Wallet desde el enlace, con la fecha y los nombres.</li>
             <li>4. En la entrada pulsas Escanear. Si es válido, ves sus datos y queda como Ingresado.</li>
             <li>5. Si no trae el código, búscalo por nombre. Si no estaba en la lista, anótalo en la puerta.</li>
             <li>6. Si el pase dice cuatro y llegan dos, bajas el número. El total cuenta solo a quienes entraron.</li>
@@ -87,6 +87,9 @@ function Home() {
             <li>8. Al terminar, cierra el evento. Si reciclas los códigos, las mismas imágenes vuelven a servir.</li>
           </ol>
           <div className="mt-5 flex flex-wrap gap-3 text-sm">
+            <Link to="/wallet" className="min-h-11 inline-flex items-center font-medium text-brass">
+              Mi Wallet
+            </Link>
             <Link to="/privacidad" className="min-h-11 inline-flex items-center font-medium text-brass">
               Privacidad
             </Link>

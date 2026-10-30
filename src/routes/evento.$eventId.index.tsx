@@ -19,6 +19,7 @@ function Dashboard() {
   const guests = useGuests(eventId);
   const photo = usePhotoUrl(event?.photo);
   const counts = useMemo(() => tally(guests), [guests]);
+  const sent = guests.filter((guest) => guest.sentAt != null).length;
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState(false);
@@ -59,7 +60,8 @@ function Dashboard() {
         <Stat label="Total" value={counts.totalIn} hint={`de ${counts.totalInvites}`} people={peopleLabel(counts.totalPeople)} />
       </section>
       <p className="mt-3 text-sm tabular-nums text-stone">
-        Pendientes: {counts.pendingInvites} invitaciones · {peopleLabel(counts.pendingPeople)} todavía fuera. En lista, {peopleLabel(counts.expectedPeople)}.
+        Pendientes: {counts.pendingInvites} invitaciones · {peopleLabel(counts.pendingPeople)} todavía fuera. En lista,{" "}
+        {peopleLabel(counts.expectedPeople)}. Pases enviados: {sent} de {counts.totalInvites}.
       </p>
       <div className="mt-3">
         <Btn

@@ -31,7 +31,15 @@ function Privacy() {
           </p>
         </section>
         <section>
-          <h2 className="font-display text-2xl text-ink">WhatsApp y correo</h2>
+          <h2 className="font-display text-2xl text-ink">Wallet</h2>
+          <p className="mt-2">
+            El pase que el invitado guarda en su Wallet se queda en ese teléfono o tablet (almacenamiento
+            del navegador), con la fecha, el día, los nombres de los novios y su código. No viaja a ningún
+            servidor y se abre sin internet. Si borra los datos del sitio, también se borra el Wallet.
+          </p>
+        </section>
+        <section>
+          <h2 className="font-display text-2xl text-ink">Envío por WhatsApp y correo</h2>
           <p className="mt-2">
             Al enviar un pase se abre WhatsApp o el correo de la tablet, con el mensaje ya escrito. Mi Evento no tiene servidor de mensajería y no entrega los datos a un tercero. El invitado confirma el envío en su propia app.
           </p>
