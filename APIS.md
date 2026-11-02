@@ -37,16 +37,15 @@ Detalles de comportamiento:
 - **Pases ya enviados**: su enlace no trae coordenadas y sigue sirviendo igual
   (los campos nuevos del pase/Wallet son opcionales y retrocompatibles).
 
-## Privacidad: qué sale (y qué jamás sale) de la tablet
+## Privacidad: datos enviados a terceros
 
-Sale **únicamente** lo que la persona que organiza ya escribió para el evento:
-
-- el texto del lugar mientras lo busca (a Photon/OpenStreetMap),
-- las coordenadas del lugar elegido y la fecha/hora del evento (a Open-Meteo),
-- el año de la fecha (a Nager.Date).
-
-**Jamás** se envían nombres de invitados, teléfonos, correos, mesas, fotos ni
-tokens de pases. Tampoco hay rastreadores ni cuentas nuevas.
+Las solicitudes de ayuda en línea incluyen el texto del lugar (Photon), las
+coordenadas (Open-Meteo y el mapa de OpenStreetMap) o el año (Nager.Date).
+Los proveedores también pueden recibir datos técnicos como la dirección IP.
+Cuando se elige compartir un pase, abrir un mapa o crear un evento en Google
+Calendar, el servicio elegido recibe los datos incluidos en el mensaje o enlace.
+La lista completa no se envía automáticamente a estas ayudas. Consulta el aviso
+visible en la aplicación para más detalles.
 
 ## Qué se descartó deliberadamente (y por qué)
 

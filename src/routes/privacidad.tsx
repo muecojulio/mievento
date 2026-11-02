@@ -9,72 +9,17 @@ export const Route = createFileRoute("/privacidad")({
 function Privacy() {
   return (
     <main className="mx-auto min-h-dvh w-full max-w-2xl px-4 py-8 sm:px-8">
-      <Link to="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-brass">
-        <Mark className="h-6 w-8" />
-        Volver
-      </Link>
-      <h1 className="mt-4 font-display text-4xl">Privacidad</h1>
+      <Link to="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-brass"><Mark className="h-6 w-8" />Volver</Link>
+      <h1 className="mt-4 font-display text-4xl">Aviso de privacidad</h1>
       <div className="mt-6 grid gap-5 text-sm leading-relaxed text-ink-soft">
-        <p>
-          Mi Evento es una herramienta de puerta para quien organiza la celebración. No pide cuenta y no envía la lista de invitados a un servidor.
-        </p>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Qué se guarda</h2>
-          <p className="mt-2">
-            Nombres, lado (novio o novia), número de personas, correo, teléfono, mesa, foto del evento y si el pase está Pendiente o Ingresado. También una llave secreta que firma los códigos para que no se puedan falsificar.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Dónde vive</h2>
-          <p className="mt-2">
-            Todo queda en la memoria local de esta tablet (IndexedDB), con índices por evento, por código y por estado para responder al instante en la puerta. La cámara solo se enciende cuando pulsas Escanear. La imagen no se sube a ningún lado.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Wallet</h2>
-          <p className="mt-2">
-            El pase que el invitado guarda en su Wallet se queda en ese teléfono o tablet (almacenamiento
-            del navegador), con la fecha, el día, los nombres de los novios y su código. No viaja a ningún
-            servidor y se abre sin internet. Si borra los datos del sitio, también se borra el Wallet.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Envío por WhatsApp y correo</h2>
-          <p className="mt-2">
-            Al enviar un pase se abre WhatsApp o el correo de la tablet, con el mensaje ya escrito. Mi Evento no tiene servidor de mensajería y no entrega los datos a un tercero. El invitado confirma el envío en su propia app.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Copia de seguridad</h2>
-          <p className="mt-2">
-            El archivo de copia incluye la llave que impide falsificar los códigos. Quien tenga ese archivo puede fabricar pases válidos. No lo mandes por WhatsApp ni lo subas a una carpeta compartida. Guárdalo como guardarías las llaves del salón.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Cómo borrar</h2>
-          <p className="mt-2">
-            Elimina el evento dentro de la app, o borra los datos del sitio en el navegador. Al borrar el evento se van la lista, las fotos y la llave de esa celebración.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Ayudas en línea opcionales</h2>
-          <p className="mt-2">
-            Al crear el evento puedes buscar el lugar para tener clima del día, mapa y botones de “cómo llegar”
-            en los pases, y la app avisa si la fecha cae en feriado. Esas ayudas usan servicios públicos sin
-            cuenta ni llave (OpenStreetMap/Photon para lugares, Open-Meteo para el clima y Nager.Date para
-            feriados de México). Lo único que sale de la tablet es el texto del lugar que escribes, sus
-            coordenadas y la fecha del evento. <strong>Nunca se envían nombres, teléfonos, correos ni códigos de
-            invitados.</strong> Si no hay internet —o si prefieres escribir el lugar a mano— todo lo demás
-            funciona igual: la lista, los pases, el Wallet y el lector no dependen de esas ayudas. El detalle
-            completo está en el archivo <code>APIS.md</code> del repositorio.
-          </p>
-        </section>
-        <section>
-          <h2 className="font-display text-2xl text-ink">Qué no hace esta app</h2>
-          <p className="mt-2">
-            No incluye rastreadores, no vende datos y no manda la lista a servicios externos. Las letras se cargan con la propia aplicación para que también sirva sin conexión después de la primera visita.
-          </p>
-        </section>
+        <p>Este aviso describe el funcionamiento de Mi Evento. La persona u organización que recopila la lista y organiza la celebración es responsable de informar a sus invitados cómo trata sus datos. Antes de publicar este aviso debe completarlo con su identidad, contacto y los requisitos legales aplicables.</p>
+        <section><h2 className="font-display text-2xl text-ink">Datos y finalidad</h2><p className="mt-2">La app puede guardar nombres, lado de la familia, correo, teléfono, número de personas, mesa o notas, estado y hora de ingreso, y registro de envío; también datos y foto del evento, códigos de acceso y la llave que los firma. Se usan para organizar la lista, emitir y compartir pases, controlar el ingreso y elaborar un reporte de cierre.</p></section>
+        <section><h2 className="font-display text-2xl text-ink">Almacenamiento y conservación</h2><p className="mt-2">La lista, la foto y la llave se guardan en IndexedDB en el navegador del dispositivo; el Wallet y algunas preferencias y resultados de servicios en línea se guardan en almacenamiento local. Permanecen hasta que se eliminen o se borren los datos del sitio; el navegador también puede eliminarlos. No hay sincronización automática entre dispositivos ni cifrado propio de la app: protege el dispositivo y limita quién puede usarlo.</p></section>
+        <section><h2 className="font-display text-2xl text-ink">Cámara, pases y copias</h2><p className="mt-2">La cámara se usa con permiso para leer códigos; la app no sube las imágenes de lectura. Los enlaces y las imágenes de pases contienen datos del evento, el nombre y un código: quien los reciba puede compartirlos. Las copias de seguridad incluyen la lista y la llave secreta; quien tenga una copia puede crear pases válidos. Guarda y comparte estos archivos de forma segura.</p></section>
+        <section><h2 className="font-display text-2xl text-ink">Servicios externos</h2><p className="mt-2">Al escribir un lugar, las sugerencias pueden enviar el texto a Photon; Open-Meteo recibe coordenadas para el clima y la zona horaria, Nager.Date recibe el año de consulta y el mapa incrustado de OpenStreetMap recibe la ubicación. Estos proveedores también pueden recibir datos técnicos como la dirección IP. Al abrir mapas o Google Calendar, o compartir por WhatsApp, correo u otra app, se envían los datos incluidos en el enlace o mensaje al servicio elegido, conforme a sus propias políticas. No se envía automáticamente la lista completa de invitados a estos servicios.</p></section>
+        <section><h2 className="font-display text-2xl text-ink">Caché y funcionamiento sin conexión</h2><p className="mt-2">Se guardan recursos de la aplicación y resultados de clima, feriados y zona horaria para reducir consultas y facilitar el uso sin internet. El clima puede mostrarse desactualizado cuando no hay conexión. La disponibilidad sin conexión depende de los recursos que el navegador haya guardado previamente.</p></section>
+        <section><h2 className="font-display text-2xl text-ink">Acceso, corrección y eliminación</h2><p className="mt-2">Solicita acceso, corrección o eliminación de tus datos a quien organiza el evento. Esa persona puede editar o borrar invitados y eliminar el evento en la app. También puede borrar los datos del sitio en el navegador. Estas acciones no eliminan automáticamente copias exportadas, mensajes enviados ni Wallets guardados por otras personas; deben tratarse por separado.</p></section>
+        <section><h2 className="font-display text-2xl text-ink">Alcance</h2><p className="mt-2">La versión descrita no requiere cuenta ni envía la lista a un servidor propio. El proveedor de alojamiento y los servicios externos pueden procesar información técnica al recibir solicitudes. Este texto es una base informativa, no sustituye la revisión legal ni identifica por sí solo al responsable del tratamiento.</p></section>
       </div>
     </main>
   );
