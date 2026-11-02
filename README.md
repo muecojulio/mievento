@@ -55,3 +55,33 @@ dispositivo y no usa base de datos ni cuentas.
 
 Los detalles de la auditoría de requisitos, lo que se agregó y las pruebas
 ejecutadas están en [VALIDACION.md](./VALIDACION.md).
+
+## Almacenamiento, seguridad y límites operativos
+
+Los datos de eventos e invitados viven en IndexedDB, no en Postgres. El índice
+`byEvent` se usa para borrar los invitados de un evento y `byToken` garantiza
+la unicidad de los pases. La aplicación carga las listas en memoria; el índice
+por estado no se consultaba y se retiró en la versión 2 de la base local. La
+actualización conserva los registros existentes. No se añadieron índices SQL
+para datos que la aplicación no guarda allí.
+
+El service worker guarda únicamente la portada pública y recursos de compilación
+locales; no guarda páginas de pases ni respuestas de API. El clima se conserva
+6 horas y los feriados y zona horaria 30 días; pueden usarse datos anteriores
+cuando no hay conexión. El modo offline depende de que el navegador ya haya
+almacenado los recursos necesarios.
+
+La admisión de un invitado existente se comprueba y registra en una transacción
+local, incluso ante lecturas simultáneas en pestañas del mismo navegador. Esto
+no sincroniza tablets distintas ni todas las ediciones abiertas en varias
+pestañas: usa una sola tablet y una sola sesión de administración para el
+control de puerta. Los datos locales y las copias de seguridad no están cifrados
+por la aplicación; protege el dispositivo y las copias. Las celdas exportadas
+al CSV se protegen contra fórmulas de hoja de cálculo.
+
+El aviso de privacidad incluido es una base informativa: quien publique la app
+debe añadir los datos del responsable, un medio de contacto y los requisitos
+legales aplicables, y revisarlo con asesoría legal. Si en el futuro se habilita
+el sistema de cuentas opcional, se debe revisar el aviso y probar la integración
+OAuth y las URLs de retorno del proveedor: Better Auth 1.7 usa rutas de callback
+distintas de la versión anterior. La aplicación actual no utiliza cuentas.

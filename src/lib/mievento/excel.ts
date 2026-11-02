@@ -226,6 +226,10 @@ export function closingCsv(event: WeddingEvent, list: Guest[]): Blob {
 }
 
 function csvCell(value: string): string {
+  // Excel y otras hojas pueden ejecutar fórmulas incluso en celdas entre comillas.
+  // El apóstrofo fuerza texto, también cuando hay espacios o controles iniciales.
+  // eslint-disable-next-line no-control-regex
+  if (/^[\s\u0000-\u001f]*[=+@-]/.test(value) || /^[\t\r\n]/.test(value)) value = `'${value}`;
   if (/[;"\r\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
 }

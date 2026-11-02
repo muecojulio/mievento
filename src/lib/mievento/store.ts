@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { makeToken, parseToken, randomId, randomSecret, safeEqual, signBody } from "@/lib/mievento/crypto";
-import { dbDeleteEvent, dbDeleteGuest, dbGetAll, dbPutEvent, dbPutGuests } from "@/lib/mievento/db";
+import { dbAdmitGuest, dbDeleteEvent, dbDeleteGuest, dbGetAll, dbPutEvent, dbPutGuests } from "@/lib/mievento/db";
 import type {
   AdmitResult,
   DraftGuest,
@@ -272,25 +272,7 @@ async function admitInner(eventId: string, raw: string): Promise<AdmitResult> {
   if (!safeEqual(expected, parsed.sig)) {
     return { ok: false, reason: "invalid", message: "Este código no está en la lista. El paso no está autorizado." };
   }
-  if (event.closed) {
-    return { ok: false, reason: "closed", message: "El evento ya terminó. El paso no está autorizado." };
-  }
-  const guest = guests.find((item) => item.id === parsed.guestId && item.eventId === eventId);
-  if (!guest || guest.token !== parsed.token) {
-    return { ok: false, reason: "invalid", message: "Este código no está en la lista. El paso no está autorizado." };
-  }
-  if (guest.status === "Ingresado") {
-    return {
-      ok: false,
-      reason: "used",
-      guest,
-      duplicate: true,
-      firstEntryAt: guest.scannedAt,
-      message: "Código ya utilizado",
-    };
-  }
-  const next = await commitAdmit(guest, "pase", guest.party);
-  return { ok: true, guest: next };
+  return admitExisting(event, parsed.guestId, "pase", undefined, parsed.token);
 }
 
 export function admitByName(guestId: string, arrived?: number): Promise<AdmitResult> {
@@ -308,21 +290,17 @@ async function admitNamed(guestId: string, arrived?: number): Promise<AdmitResul
     return { ok: false, reason: "invalid", message: "Este invitado ya no está en la lista. El paso no está autorizado." };
   }
   const event = events.find((item) => item.id === guest.eventId);
-  if (event?.closed) {
-    return { ok: false, reason: "closed", guest, message: "El evento ya terminó. El paso no está autorizado." };
-  }
-  if (guest.status === "Ingresado") {
-    return {
-      ok: false,
-      reason: "used",
-      guest,
-      duplicate: true,
-      firstEntryAt: guest.scannedAt,
-      message: "Esta persona ya ingresó",
-    };
-  }
-  const next = await commitAdmit(guest, "nombre", clampArrived(arrived ?? guest.party, guest.party));
-  return { ok: true, guest: next };
+  if (!event) return { ok: false, reason: "invalid", message: "El evento ya no existe. El paso no está autorizado." };
+  return admitExisting(event, guestId, "nombre", arrived);
+}
+
+async function admitExisting(event: WeddingEvent, guestId: string, entry: "pase" | "nombre", arrived?: number, token?: string): Promise<AdmitResult> {
+  const result = await dbAdmitGuest({ eventId: event.id, guestId, expectedSecret: event.secret, entry, arrived, token });
+  if (result.kind === "invalid") return { ok: false, reason: "invalid", message: "Este código o invitado no está en la lista. El paso no está autorizado." };
+  if (result.kind === "closed") return { ok: false, reason: "closed", message: "El evento ya terminó. El paso no está autorizado." };
+  replaceGuest(result.guest);
+  if (result.kind === "used") return { ok: false, reason: "used", guest: result.guest, duplicate: true, firstEntryAt: result.guest.scannedAt, message: entry === "pase" ? "Código ya utilizado" : "Esta persona ya ingresó" };
+  return { ok: true, guest: result.guest };
 }
 
 export function addWalkIn(

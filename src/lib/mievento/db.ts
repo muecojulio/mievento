@@ -1,7 +1,7 @@
-import type { Guest, WeddingEvent } from "@/lib/mievento/types";
+import type { EntryKind, Guest, WeddingEvent } from "@/lib/mievento/types";
 
 const DB_NAME = "mievento";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let opening: Promise<IDBDatabase> | null = null;
 
@@ -18,10 +18,16 @@ function openDb(): Promise<IDBDatabase> {
         const guests = db.createObjectStore("guests", { keyPath: "id" });
         guests.createIndex("byEvent", "eventId", { unique: false });
         guests.createIndex("byToken", "token", { unique: true });
-        guests.createIndex("byEventStatus", ["eventId", "status"], { unique: false });
       }
+      // No se consulta por estado: mantener ese índice solo encarece las escrituras.
+      const guests = request.transaction!.objectStore("guests");
+      if (guests.indexNames.contains("byEventStatus")) guests.deleteIndex("byEventStatus");
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => { db.close(); opening = null; };
+      resolve(db);
+    };
     request.onerror = () => {
       opening = null;
       reject(request.error ?? new Error("No se pudo abrir la memoria del evento"));
@@ -84,4 +90,43 @@ function txDone(tx: IDBTransaction): Promise<void> {
     tx.onerror = () => reject(tx.error ?? new Error("No se pudo guardar"));
     tx.onabort = () => reject(tx.error ?? new Error("Guardado cancelado"));
   });
+}
+
+// La lectura y el cambio de estado ocurren en una sola transacción compartida
+// entre pestañas del mismo navegador. No sincroniza dispositivos distintos.
+export async function dbAdmitGuest(input: {
+  guestId: string;
+  eventId: string;
+  expectedSecret: string;
+  token?: string;
+  entry: EntryKind;
+  arrived?: number;
+}): Promise<{ kind: "ok" | "used"; guest: Guest } | { kind: "invalid" } | { kind: "closed" }> {
+  const db = await openDb();
+  const tx = db.transaction(["events", "guests"], "readwrite");
+  const done = txDone(tx);
+  const events = tx.objectStore("events");
+  const guests = tx.objectStore("guests");
+  const [event, guest] = await Promise.all([
+    requestToPromise(events.get(input.eventId) as IDBRequest<WeddingEvent | undefined>),
+    requestToPromise(guests.get(input.guestId) as IDBRequest<Guest | undefined>),
+  ]);
+  let result: { kind: "ok" | "used"; guest: Guest } | { kind: "invalid" } | { kind: "closed" };
+  if (!event || event.secret !== input.expectedSecret || !guest || guest.eventId !== event.id ||
+      (input.token !== undefined && guest.token !== input.token)) {
+    result = { kind: "invalid" };
+  } else if (event.closed) {
+    result = { kind: "closed" };
+  } else if (guest.status === "Ingresado") {
+    result = { kind: "used", guest };
+  } else {
+    const party = Number.isFinite(guest.party) ? Math.max(1, Math.min(20, Math.round(guest.party))) : 1;
+    const requested = input.arrived ?? party;
+    const arrived = Number.isFinite(requested) && requested >= 1 ? Math.min(party, Math.round(requested)) : party;
+    const next: Guest = { ...guest, status: "Ingresado", scannedAt: Date.now(), arrived, entry: input.entry };
+    guests.put(next);
+    result = { kind: "ok", guest: next };
+  }
+  await done;
+  return result;
 }

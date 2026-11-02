@@ -19,7 +19,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/mievento/mievento.test.ts src/lib/mievento/wallet.test.ts src/lib/mievento/public-apis.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/mievento/mievento.test.ts src/lib/mievento/wallet.test.ts src/lib/mievento/public-apis.test.ts && node --experimental-strip-types --import ./scripts/register-alias.mjs --test src/lib/mievento/excel-security.test.ts src/lib/mievento/db-security.test.ts src/lib/mievento/db-migration.test.ts",
     "test:flow": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/flow-test.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -58,7 +58,7 @@
     "@tanstack/router-plugin": "^1.168.0",
     "@vitejs/plugin-react": "^5.2.0",
     "@zxing/browser": "^0.2.1",
-    "better-auth": "~1.6.30",
+    "better-auth": "^1.7.14",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -84,7 +84,7 @@
     "typescript": "^5.7.0",
     "vaul": "^1.1.2",
     "vite": "^8.2.0",
-    "zod": "^4.4.0",
+    "zod": "^4.6.7",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
