@@ -22,6 +22,25 @@ cuenta ni servidor de invitados.
 - **Wallet**: el invitado guarda su pase en el Wallet de la app con la fecha, el
   día y los nombres de los novios; se abre sin internet y se puede bajar como
   imagen o agregar al calendario.
+- **Mesas**: en Invitados alternas entre «Lista» y «Mesas». Cada mesa agrupa a
+  sus invitados (aunque el Excel mezcle acentos, mayúsculas o espacios en el
+  nombre de la mesa), muestra cuántas invitaciones entraron y cuántas personas
+  hay dentro, y se puede tocar para filtrar la lista. «Descargar mesas» genera
+  un CSV imprimible con el resumen por mesa y el detalle de invitados, con la
+  misma protección contra fórmulas que el cierre.
+- **Sin código por más datos**: en la puerta se busca por nombre, mesa,
+  teléfono o correo, además de autorizar por nombre como antes.
+- **Croquis de mesas**: pestaña para arrastrar las mesas a su lugar en el
+  salón (también con flechas del teclado) y descargar el plano como PNG. El
+  acomodo se guarda solo en la tablet.
+- **PIN local opcional**: sin cuenta ni servidor, un PIN guardado como hash
+  protege terminar o borrar el evento, reciclar códigos, vaciar la lista y
+  descargar copias o reportes. Escanear nunca lo pide.
+- **Aviso de contactos repetidos**: al importar se detectan teléfonos y
+  correos duplicados (con o sin `+52`) o que ya están en la lista, y se pueden
+  omitir para no enviar dos pases a la misma persona.
+- **Pases por hoja**: impresión de 8 credenciales por página con QR, nombre y
+  código, generada en el dispositivo y lista para imprimir sin internet.
 - **Cierre**: CSV de quién entró y quién no, copia de seguridad y opción de
   reciclar los códigos de un evento terminado.
 - **Ayudas en línea (opcionales, sin llave ni cuenta)**: al escribir el lugar se
@@ -30,6 +49,13 @@ cuenta ni servidor de invitados.
   México (Nager.Date) y botón de Google Calendar junto al `.ics`. Solo salen de
   la tablet el lugar y la fecha del evento —nunca la lista— y sin internet todo
   sigue igual. Detalle completo en [APIS.md](./APIS.md).
+
+Estas funciones se calculan con la lista que ya está en IndexedDB: no añaden
+campos a la base local, no crean cuentas, no piden llaves, no usan la red y no
+envían nombres ni códigos a ningún servicio. El PIN, el acomodo del croquis y
+los QR se generan o se guardan en el dispositivo; todo funciona igual sin
+internet. Las hojas impresas y las copias contienen códigos válidos: protégelas
+como protegerías un pase enviado.
 
 ## Desarrollo
 

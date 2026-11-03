@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { CalendarPlus, Mail, MessageCircle, Share2, Wallet } from "lucide-react";
+import { usePinGuard } from "@/components/mievento/pin-gate";
 import { Btn, fieldClass } from "@/components/mievento/ui";
 import {
+  coupleNames,
   foldText,
+  formatLongDate,
   formatStamp,
   peopleLabel,
   sidePhrase,
   slugFile,
   waDigits,
 } from "@/lib/mievento/format";
+import { openPrintSheet, printSheetHtml, type PrintCard } from "@/lib/mievento/print-sheet";
 import {
   downloadBlob,
   icsFor,
@@ -26,6 +30,8 @@ import { markGuestSent, useEvent, useGuests } from "@/lib/mievento/store";
 import type { Guest, SendChannel, WeddingEvent } from "@/lib/mievento/types";
 
 const PAGE = 40;
+/** 8 pases por hoja; 15 hojas por tanda para no saturar la tablet. */
+const MAX_PRINT = 120;
 
 export const Route = createFileRoute("/evento/$eventId/pases")({
   head: () => ({ meta: [{ title: "Pases · Mi Evento" }] }),
@@ -41,6 +47,8 @@ function PassesPage() {
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(PAGE);
   const [packing, setPacking] = useState<{ done: number; total: number } | null>(null);
+  const [printing, setPrinting] = useState<{ done: number; total: number } | null>(null);
+  const pinGuard = usePinGuard();
   const [autoChannel, setAutoChannel] = useState<"whatsapp" | "correo">("whatsapp");
   const [queue, setQueue] = useState<{ channel: "whatsapp" | "correo"; done: number; total: number } | null>(
     null,
@@ -180,6 +188,44 @@ function PassesPage() {
     }
   }
 
+  async function printSheets() {
+    const list = ordered.slice(0, MAX_PRINT);
+    if (list.length === 0 || printing || packing) return;
+    setPrinting({ done: 0, total: list.length });
+    setNote("");
+    try {
+      const cards: PrintCard[] = [];
+      for (const guest of list) {
+        const qr = await qrDataUrl(guest.token, 240, motifForToken(guest.token));
+        cards.push({
+          name: guest.name,
+          side: sidePhrase(guest.side),
+          party: guest.party,
+          token: guest.token,
+          qr,
+        });
+        setPrinting({ done: cards.length, total: list.length });
+      }
+      const html = printSheetHtml({
+        title: coupleNames(current),
+        subtitle: formatLongDate(current.date),
+        cards,
+      });
+      const result = openPrintSheet(html, (blob) =>
+        downloadBlob(blob, `pases-imprimir-${slugFile(current)}.html`),
+      );
+      setNote(
+        result === "impresa"
+          ? `Listo: ${cards.length} pases en ${Math.ceil(cards.length / 8)} hojas. Se abrió la impresión.`
+          : "El navegador bloqueó la ventana: se descargó el archivo HTML. Ábrelo e imprime desde ahí.",
+      );
+    } catch {
+      setNote("No se pudieron generar las hojas. Inténtalo de nuevo.");
+    } finally {
+      setPrinting(null);
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-6">
       <h1 className="font-display text-4xl">Pases</h1>
@@ -195,7 +241,17 @@ function PassesPage() {
         <Btn variant="ghost" onClick={() => void downloadAll()} disabled={guests.length === 0 || packing !== null}>
           {packing ? `Generando ${packing.done} de ${packing.total}` : "Descargar todos los códigos"}
         </Btn>
+        <Btn
+          variant="ghost"
+          onClick={() => pinGuard.guard(() => void printSheets())}
+          disabled={ordered.length === 0 || packing !== null || printing !== null}
+        >
+          {printing ? `Preparando ${printing.done} de ${printing.total}` : "Imprimir por hoja"}
+        </Btn>
       </div>
+      <p className="mt-2 text-xs text-stone">
+        La hoja imprimible lleva 8 pases por página, con QR, nombre y código. Se generan hasta {MAX_PRINT} por tanda; usa la búsqueda para imprimir otro grupo. Guarda las hojas: contienen pases válidos.
+      </p>
       <section className="mt-4 rounded-3xl border border-line p-4">
         <p className="text-sm font-medium text-ink">Enviar los pases automáticamente</p>
         <p className="mt-1 text-sm text-stone">
@@ -262,6 +318,7 @@ function PassesPage() {
           ) : null}
         </>
       )}
+      {pinGuard.dialogs}
     </main>
   );
 }
