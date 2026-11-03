@@ -172,7 +172,7 @@ export function EventNav({ eventId }: { eventId: string }) {
   );
 }
 
-export function OnlineNote() {
+export function useOnlineStatus(): boolean {
   const [online, setOnline] = useState(true);
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -184,11 +184,24 @@ export function OnlineNote() {
       window.removeEventListener("offline", sync);
     };
   }, []);
+  return online;
+}
+
+export function OnlineNote() {
+  const online = useOnlineStatus();
   if (online) return null;
   return (
-    <p className="rounded-2xl border border-line bg-paper-2 px-4 py-3 text-sm text-ink-soft">
-      Sin internet. El acceso sigue funcionando en esta tablet.
-    </p>
+    <div
+      role="status"
+      data-testid="offline-global-note"
+      className="rounded-2xl border border-brass/40 bg-paper-2 px-4 py-3 text-sm text-ink-soft"
+    >
+      <p className="font-medium text-ink">Sin internet · Validación local activa en esta tablet</p>
+      <p className="mt-1 text-stone">
+        Si abres diferentes puertas, activa <strong className="font-medium text-ink">Puerta asignada por QR</strong> o enlaza las tablets en red local; de lo contrario,{" "}
+        <strong className="font-medium text-ink">tiene que haber internet</strong> para que un mismo código QR no se pueda pasar en otra puerta.
+      </p>
+    </div>
   );
 }
 

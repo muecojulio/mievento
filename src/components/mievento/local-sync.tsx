@@ -1,24 +1,26 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   answerSync,
   completeSync,
   disconnectSync,
   offerSync,
-  subscribeSync,
-  syncStatus,
+  useSyncSnapshot,
 } from "@/lib/mievento/local-sync";
-import { Btn, fieldClass } from "./ui";
+import { Btn, fieldClass, Switch, useOnlineStatus } from "./ui";
 
 export function LocalSync({ eventId }: { eventId?: string }) {
-  const status = useSyncExternalStore(subscribeSync, syncStatus, () => "Sin conexión");
+  const sync = useSyncSnapshot();
+  const online = useOnlineStatus();
   const [code, setCode] = useState("");
   const [qr, setQr] = useState("");
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [allowInternet, setAllowInternet] = useState(false);
   const [mode, setMode] = useState<"offer" | "answer">(eventId ? "offer" : "answer");
   const video = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     let alive = true;
     setQr("");
@@ -35,10 +37,11 @@ export function LocalSync({ eventId }: { eventId?: string }) {
       alive = false;
     };
   }, [code]);
+
   useEffect(() => {
     if (!scanning || !video.current) return;
-    let stop: (() => void) | undefined,
-      cancelled = false;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
     void import("@zxing/browser")
       .then(async ({ BrowserQRCodeReader }) => {
         const controls = await new BrowserQRCodeReader().decodeFromVideoDevice(
@@ -63,6 +66,7 @@ export function LocalSync({ eventId }: { eventId?: string }) {
       stop?.();
     };
   }, [scanning]);
+
   async function run(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -74,21 +78,32 @@ export function LocalSync({ eventId }: { eventId?: string }) {
       setBusy(false);
     }
   }
+
   return (
     <section className="mt-6 rounded-3xl border border-line p-4">
       <h2 className="font-display text-2xl">Conectar tablets</h2>
       <p className="mt-2 text-sm text-stone">
-        Misma red Wi-Fi, sin servidor ni internet para sincronizar. Mantén la app abierta en ambas
-        tablets. La red debe permitir comunicación entre dispositivos.
+        Misma red Wi-Fi o hotspot local, sin servidor ni internet para sincronizar. Mantén la app
+        abierta en todas las puertas: la tablet principal coordina un bloqueo en vivo para que un
+        mismo QR no pueda pasar en dos puertas ni escaneando al mismo tiempo.
       </p>
-      <p role="status" className="my-3 text-sm font-medium">
-        {status}
+      <p role="status" className="my-3 text-sm font-medium text-ink">
+        {sync.status}
       </p>
       <p className="mb-3 text-sm text-stone">
-        La tablet principal envía su evento completo: sustituye la copia de ese evento en la
-        receptora. Guarda una copia antes de conectar. Después se comparten los cambios en ambos
-        sentidos. Una pareja por pestaña emparejada.
+        La tablet principal envía su evento completo a cada puerta receptora. Puedes enlazar una
+        segunda, tercera o más puertas repitiendo los pasos 1 a 3 sin desconectar las anteriores.
       </p>
+      {eventId && online ? (
+        <div className="mb-3 rounded-2xl border border-line px-3 py-1.5">
+          <Switch
+            checked={allowInternet}
+            onChange={setAllowInternet}
+            label="Puertas en distinta red (usar internet)"
+            hint="Apagado usa solo Wi-Fi/hotspot local sin internet. Enciéndelo si cada puerta usa sus propios datos móviles."
+          />
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {eventId && (
           <Btn
@@ -96,7 +111,7 @@ export function LocalSync({ eventId }: { eventId?: string }) {
             onClick={() =>
               void run(async () => {
                 setMode("offer");
-                setCode(await offerSync(eventId));
+                setCode(await offerSync(eventId, { allowInternet: online && allowInternet }));
               })
             }
           >
@@ -171,7 +186,11 @@ export function LocalSync({ eventId }: { eventId?: string }) {
           onClick={() =>
             void run(async () => {
               if (mode === "answer") setCode(await answerSync(input.trim()));
-              else await completeSync(input.trim());
+              else {
+                await completeSync(input.trim());
+                setCode("");
+                setInput("");
+              }
             })
           }
         >
@@ -183,15 +202,14 @@ export function LocalSync({ eventId }: { eventId?: string }) {
         </Btn>
       </div>
       {error && (
-        <p role="alert" className="mt-3 text-sm text-red-700">
+        <p role="alert" className="mt-3 text-sm text-alert">
           {error}
         </p>
       )}
       <p className="mt-3 text-xs text-stone">
         El QR permite acceder a los datos del evento: muéstralo solo al equipo autorizado. Caduca en
-        10 minutos. Si se corta la conexión, vuelve a emparejar desde la copia más actualizada. Dos
-        tablets desconectadas o escaneos simultáneos pueden aceptar el mismo pase; no hay bloqueo
-        centralizado.
+        10 minutos. Si la red Wi-Fi aísla dispositivos y no hay internet, usa «Puerta asignada por
+        QR» para impedir que un mismo pase se use en dos entradas sin red.
       </p>
       <p className="mt-2 text-xs text-stone">
         Las pestañas de este navegador se actualizan automáticamente mediante BroadcastChannel, si

@@ -91,6 +91,7 @@ export function parseWallet(raw: string | null | undefined): WalletPass[] {
         side: item.side,
         party: Math.min(20, Math.max(1, Math.round(item.party))),
         motif: item.motif,
+        door: text(item.door) || undefined,
         savedAt: typeof item.savedAt === "number" ? item.savedAt : 0,
       });
       if (clean.length >= LIMIT) break;
@@ -303,6 +304,11 @@ export async function renderWalletCardPng(pass: WalletPass): Promise<Blob> {
     64,
     nameBottom + 46,
   );
+  if (pass.door) {
+    ctx.fillStyle = "#8C5A32";
+    ctx.font = "600 26px Outfit, system-ui, sans-serif";
+    ctx.fillText(`Acceso asignado: ${pass.door}`, 64, nameBottom + 86);
+  }
 
   const qrBox = 560;
   const qx = (canvas.width - qrBox) / 2;

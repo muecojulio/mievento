@@ -1,5 +1,6 @@
 import { publishChange, type Change } from "@/lib/mievento/change-bus";
-import type { EntryKind, Guest, WeddingEvent } from "@/lib/mievento/types";
+import { assignedDoorForGuest, effectiveDoorMode, normalizeDoors } from "@/lib/mievento/doors";
+import type { EntryKind, EventDoor, Guest, WeddingEvent } from "@/lib/mievento/types";
 
 const DB_NAME = "mievento";
 const DB_VERSION = 2;
@@ -98,8 +99,16 @@ function txDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
+export type DbAdmitOutput =
+  | { kind: "ok" | "used"; guest: Guest }
+  | { kind: "invalid" }
+  | { kind: "closed" }
+  | { kind: "no-door" }
+  | { kind: "wrong-door"; guest: Guest; assignedDoor: EventDoor; currentDoor: EventDoor };
+
 // La lectura y el cambio de estado ocurren en una sola transacción compartida
-// entre pestañas del mismo navegador. No sincroniza dispositivos distintos.
+// entre pestañas del mismo navegador. En modo «asignada» también verifica en
+// la misma transacción que el pase pertenezca a la puerta de esta tablet.
 export async function dbAdmitGuest(input: {
   guestId: string;
   eventId: string;
@@ -107,7 +116,9 @@ export async function dbAdmitGuest(input: {
   token?: string;
   entry: EntryKind;
   arrived?: number;
-}): Promise<{ kind: "ok" | "used"; guest: Guest } | { kind: "invalid" } | { kind: "closed" }> {
+  tabletDoorId?: string | null;
+  doorName?: string | null;
+}): Promise<DbAdmitOutput> {
   const db = await openDb();
   const tx = db.transaction(["events", "guests"], "readwrite");
   const done = txDone(tx);
@@ -117,21 +128,58 @@ export async function dbAdmitGuest(input: {
     requestToPromise(events.get(input.eventId) as IDBRequest<WeddingEvent | undefined>),
     requestToPromise(guests.get(input.guestId) as IDBRequest<Guest | undefined>),
   ]);
-  let result: { kind: "ok" | "used"; guest: Guest } | { kind: "invalid" } | { kind: "closed" };
-  if (!event || event.secret !== input.expectedSecret || !guest || guest.eventId !== event.id ||
-      (input.token !== undefined && guest.token !== input.token)) {
+  let result: DbAdmitOutput;
+  if (
+    !event ||
+    event.secret !== input.expectedSecret ||
+    !guest ||
+    guest.eventId !== event.id ||
+    (input.token !== undefined && guest.token !== input.token)
+  ) {
     result = { kind: "invalid" };
   } else if (event.closed) {
     result = { kind: "closed" };
-  } else if (guest.status === "Ingresado") {
-    result = { kind: "used", guest };
   } else {
-    const party = Number.isFinite(guest.party) ? Math.max(1, Math.min(20, Math.round(guest.party))) : 1;
-    const requested = input.arrived ?? party;
-    const arrived = Number.isFinite(requested) && requested >= 1 ? Math.min(party, Math.round(requested)) : party;
-    const next: Guest = { ...guest, status: "Ingresado", scannedAt: Date.now(), arrived, entry: input.entry };
-    guests.put(next);
-    result = { kind: "ok", guest: next };
+    const mode = effectiveDoorMode(event);
+    let stampDoor: string | null = input.doorName?.trim() || null;
+    let blocked: DbAdmitOutput | null = null;
+
+    if (mode === "asignada") {
+      const doors = normalizeDoors(event.doors);
+      const currentDoor = input.tabletDoorId
+        ? doors.find((door) => door.id === input.tabletDoorId) ?? null
+        : null;
+      if (!currentDoor) {
+        blocked = { kind: "no-door" };
+      } else {
+        const assignedDoor = assignedDoorForGuest(event, guest);
+        if (assignedDoor && assignedDoor.id !== currentDoor.id) {
+          blocked = { kind: "wrong-door", guest, assignedDoor, currentDoor };
+        } else {
+          stampDoor = currentDoor.name;
+        }
+      }
+    }
+
+    if (blocked) {
+      result = blocked;
+    } else if (guest.status === "Ingresado") {
+      result = { kind: "used", guest };
+    } else {
+      const party = Number.isFinite(guest.party) ? Math.max(1, Math.min(20, Math.round(guest.party))) : 1;
+      const requested = input.arrived ?? party;
+      const arrived = Number.isFinite(requested) && requested >= 1 ? Math.min(party, Math.round(requested)) : party;
+      const next: Guest = {
+        ...guest,
+        status: "Ingresado",
+        scannedAt: Date.now(),
+        arrived,
+        entry: input.entry,
+        admittedDoor: stampDoor,
+      };
+      guests.put(next);
+      result = { kind: "ok", guest: next };
+    }
   }
   await done;
   if (result.kind === "ok") publishChange({ type: "guests", guests: [result.guest] });
