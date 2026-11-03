@@ -135,6 +135,11 @@ function WalletCard({ pass }: { pass: WalletPass }) {
             <p className="text-sm text-paper-2">
               {sidePhrase(pass.side)} · {peopleLabel(pass.party)}
             </p>
+            {pass.door ? (
+              <p className="mt-1 text-xs font-medium text-brass">
+                Acceso asignado: {pass.door}
+              </p>
+            ) : null}
           </div>
           <div className="size-28 shrink-0 overflow-hidden rounded-2xl bg-paper p-1.5">
             {qr ? (

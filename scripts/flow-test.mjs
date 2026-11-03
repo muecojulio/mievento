@@ -25,6 +25,7 @@ globalThis.localStorage = {
 
 const store = await import("@/lib/mievento/store");
 const { dbGetAll } = await import("@/lib/mievento/db");
+const doors = await import("@/lib/mievento/doors");
 const wallet = await import("@/lib/mievento/wallet");
 
 const results = [];
@@ -118,6 +119,44 @@ check(
   "el Wallet conserva los nombres de los novios y el día",
   (memory.get(wallet.WALLET_STORAGE_KEY) ?? "").includes("Valentina") &&
     (memory.get(wallet.WALLET_STORAGE_KEY) ?? "").includes("2026-11-14"),
+);
+
+// Flujo sin internet en diferentes puertas:
+const elena = guests.find((item) => item.eventId === event.id && item.name === "Elena Cruz");
+await store.configureEventDoors(event.id, {
+  doorMode: "asignada",
+  doors: doors.defaultDoors(2),
+  doorRule: "lado",
+});
+doors.setTabletDoorId(event.id, "p1");
+const wrongDoorScan = await store.admitToken(event.id, elena.token);
+check(
+  "sin internet, un QR de Puerta 2 es rechazado en Puerta 1",
+  wrongDoorScan.ok === false && wrongDoorScan.reason === "wrong-door" && wrongDoorScan.doorName === "Puerta 2",
+  wrongDoorScan.message,
+);
+doors.setTabletDoorId(event.id, "p2");
+const rightDoorScan = await store.admitToken(event.id, elena.token);
+check(
+  "el mismo QR sí autoriza en su puerta asignada (Puerta 2)",
+  rightDoorScan.ok === true && rightDoorScan.guest.admittedDoor === "Puerta 2",
+);
+const secondTrySameDoor = await store.admitToken(event.id, elena.token);
+check(
+  "en su propia puerta tampoco puede pasar dos veces",
+  secondTrySameDoor.ok === false && secondTrySameDoor.reason === "used" && secondTrySameDoor.doorName === "Puerta 2",
+);
+
+await store.configureEventDoors(event.id, {
+  doorMode: "enlace",
+  doors: doors.defaultDoors(2),
+  strictDoorLink: true,
+});
+const unlinkedScan = await store.admitToken(event.id, elena.token);
+check(
+  "en entrada libre sin conexión ni internet avisa y detiene el paso para evitar doble puerta",
+  unlinkedScan.ok === false && unlinkedScan.reason === "door-offline",
+  unlinkedScan.message,
 );
 
 const failures = results.filter((item) => !item.ok);

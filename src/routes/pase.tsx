@@ -73,10 +73,22 @@ function PassPage() {
           <p className="mt-1 text-sm text-stone">
             {sidePhrase(pass.side)} · {peopleLabel(pass.party)}
           </p>
+          {pass.door ? (
+            <p
+              data-testid="pass-door-badge"
+              className="mt-2 inline-flex rounded-full bg-paper-2 px-3 py-1 text-xs font-medium text-brass"
+            >
+              Acceso asignado: {pass.door}
+            </p>
+          ) : null}
           <div className="mt-6 rounded-2xl bg-paper-2 p-3">
             {qr ? <img src={qr} alt={`Código de acceso de ${pass.name}`} className="mx-auto w-full max-w-xs" /> : null}
           </div>
-          <p className="mt-4 text-center text-sm text-stone">De un solo uso. Muéstralo en la entrada.</p>
+          <p className="mt-4 text-center text-sm text-stone">
+            {pass.door
+              ? `De un solo uso. Válido únicamente en ${pass.door}.`
+              : "De un solo uso. Muéstralo en la entrada."}
+          </p>
         </div>
       </article>
       <div className="mt-4 grid gap-2">

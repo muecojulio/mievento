@@ -1,3 +1,4 @@
+import { assignedDoorForGuest } from "@/lib/mievento/doors";
 import { coupleNames, entryLabel, formatLongDate, formatStamp, headsIn, sideLabel } from "@/lib/mievento/format";
 import { tableGroups } from "@/lib/mievento/tables";
 import type { DraftGuest, Guest, Side, WeddingEvent } from "@/lib/mievento/types";
@@ -8,6 +9,7 @@ const EMAIL_KEYS = ["email", "correo", "e-mail", "mail"];
 const PHONE_KEYS = ["telefono", "teléfono", "whatsapp", "celular", "phone", "movil", "móvil"];
 const PARTY_KEYS = ["personas", "pases", "pase", "boletos", "acompanantes", "acompañantes", "cupo", "cantidad"];
 const NOTE_KEYS = ["mesa", "nota", "notas", "observaciones"];
+const DOOR_KEYS = ["puerta", "acceso", "entrada", "gate", "porton", "portón"];
 
 export function nameKey(name: string): string {
   return norm(name).replace(/\s+/g, " ");
@@ -183,6 +185,7 @@ export function rowsToDrafts(rows: unknown[][], sheetSide: Side | null): { draft
   const emailCol = headerAt >= 0 ? headerIndex(headers, EMAIL_KEYS) : 3;
   const phoneCol = headerAt >= 0 ? headerIndex(headers, PHONE_KEYS) : 4;
   const noteCol = headerAt >= 0 ? headerIndex(headers, NOTE_KEYS) : 5;
+  const doorCol = headerAt >= 0 ? headerIndex(headers, DOOR_KEYS) : -1;
 
   for (let i = start; i < rows.length; i++) {
     const row = rows[i];
@@ -192,6 +195,7 @@ export function rowsToDrafts(rows: unknown[][], sheetSide: Side | null): { draft
       continue;
     }
     const side = (sideCol >= 0 ? sideFromText(cellText(row[sideCol])) : null) ?? sheetSide ?? "novio";
+    const door = doorCol >= 0 ? cellText(row[doorCol]).slice(0, 40) : "";
     drafts.push({
       name: name.slice(0, 80),
       side,
@@ -199,6 +203,7 @@ export function rowsToDrafts(rows: unknown[][], sheetSide: Side | null): { draft
       phone: phoneCol >= 0 ? cellText(row[phoneCol]).slice(0, 32) : "",
       party: partyCol >= 0 ? partyOf(row[partyCol]) : 1,
       note: noteCol >= 0 ? cellText(row[noteCol]).slice(0, 40) : "",
+      ...(door ? { door } : {}),
     });
   }
   return { drafts, skipped };
@@ -258,9 +263,9 @@ export async function parseGuestFile(file: File): Promise<{ drafts: DraftGuest[]
 
 export function templateCsv(): Blob {
   const body = [
-    "nombre,lado,personas,correo,telefono,mesa",
-    "Andrés Ríos,novio,2,andres@correo.com,5512345678,1",
-    "Elena Cruz,novia,2,elena@correo.com,5587654321,4",
+    "nombre,lado,personas,correo,telefono,mesa,puerta",
+    "Andrés Ríos,novio,2,andres@correo.com,5512345678,1,",
+    "Elena Cruz,novia,2,elena@correo.com,5587654321,4,",
   ].join("\n");
   return new Blob([`\uFEFF${body}\n`], { type: "text/csv;charset=utf-8" });
 }
@@ -279,7 +284,7 @@ export function closingCsv(event: WeddingEvent, list: Guest[]): Blob {
     ["Personas dentro", String(inside)],
     ["Invitaciones pendientes", String(pending.length)],
     [],
-    ["Nombre", "Lado", "En el pase", "Entraron", "Estado", "Hora", "Cómo entró", "Correo", "Teléfono", "Mesa"],
+    ["Nombre", "Lado", "En el pase", "Entraron", "Estado", "Hora", "Cómo entró", "Puerta", "Correo", "Teléfono", "Mesa"],
     ...[...admitted, ...pending].map((guest) => [
       guest.name,
       sideLabel(guest.side),
@@ -288,6 +293,7 @@ export function closingCsv(event: WeddingEvent, list: Guest[]): Blob {
       guest.status,
       guest.scannedAt ? formatStamp(guest.scannedAt) : "",
       entryLabel(guest.entry),
+      guest.admittedDoor || assignedDoorForGuest(event, guest)?.name || guest.door || "",
       guest.email,
       guest.phone,
       guest.note,

@@ -13,6 +13,8 @@ export type PrintCard = {
   token: string;
   /** Data URL PNG del QR, generada en el dispositivo con `qrDataUrl`. */
   qr: string;
+  /** Puerta asignada cuando el evento opera con puertas sin red. */
+  door?: string;
 };
 
 export type PrintSheetOptions = {
@@ -65,7 +67,7 @@ export function printSheetHtml(options: PrintSheetOptions): string {
             <article class="card">
               ${qr ? `<img class="qr" src="${qr}" alt="Código QR" />` : ""}
               <p class="name">${escapeHtml(card.name)}</p>
-              <p class="meta">${escapeHtml(card.side)} · ${people} ${people === 1 ? "persona" : "personas"}</p>
+              <p class="meta">${escapeHtml(card.side)} · ${people} ${people === 1 ? "persona" : "personas"}${card.door ? ` · <strong>${escapeHtml(card.door)}</strong>` : ""}</p>
               <p class="code">${escapeHtml(card.token)}</p>
             </article>`;
             })

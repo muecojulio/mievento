@@ -1,4 +1,5 @@
 import { previewPathPrefix } from "@/lib/preview-path-prefix";
+import { assignedDoorForGuest } from "@/lib/mievento/doors";
 import { zipStore } from "@/lib/mievento/zip";
 import type { Guest, QrMotif, WeddingEvent } from "@/lib/mievento/types";
 import { coupleNames, formatLongDate, sidePhrase } from "@/lib/mievento/format";
@@ -23,9 +24,12 @@ export type PassView = {
   side: "novio" | "novia";
   party: number;
   motif: QrMotif;
+  /** Puerta obligatoria asignada al pase cuando el evento opera con puertas sin red. */
+  door?: string;
 };
 
 export function passFromGuest(event: WeddingEvent, guest: Guest): PassView {
+  const assigned = assignedDoorForGuest(event, guest);
   return {
     token: guest.token,
     name: guest.name,
@@ -40,6 +44,7 @@ export function passFromGuest(event: WeddingEvent, guest: Guest): PassView {
     side: guest.side,
     party: guest.party,
     motif: motifForToken(guest.token),
+    door: assigned?.name ?? "",
   };
 }
 
@@ -60,6 +65,7 @@ export function passLink(pass: PassView): string {
   params.set("s", pass.side);
   params.set("c", String(pass.party));
   params.set("m", pass.motif);
+  if (pass.door) params.set("dr", pass.door);
   const prefix =
     typeof window === "undefined"
       ? ""
@@ -93,6 +99,7 @@ export function readPassHash(): PassView | null {
     side: params.get("s") === "novia" ? "novia" : "novio",
     party: Number.isFinite(party) && party > 0 ? Math.min(20, Math.round(party)) : 1,
     motif: motifForToken(token),
+    door: params.get("dr")?.trim() || "",
   };
 }
 
@@ -104,6 +111,7 @@ export function inviteText(pass: PassView): string {
     `Hola ${pass.name}.`,
     `Tu pase para ${who}${when ? ` — ${when}` : ""}.`,
     pass.place ? `Lugar: ${pass.place}.` : "",
+    pass.door ? `Acceso asignado: ${pass.door} (válido únicamente en esa puerta).` : "",
     directions ? `Cómo llegar: ${directions.google}` : "",
     `${sidePhrase(pass.side)}. ${pass.party === 1 ? "1 persona." : `${pass.party} personas.`}`,
     "Muestra el código en la entrada. Es de un solo uso.",
@@ -320,6 +328,7 @@ export function icsFor(pass: PassView): string {
   const directions = mapsUrls({ place: pass.place, lat: pass.lat, lon: pass.lon });
   const description = [
     `Pase de ${pass.name}. ${sidePhrase(pass.side)}.`,
+    pass.door ? `Acceso asignado: ${pass.door}.` : "",
     directions ? `Cómo llegar: ${directions.google}` : "",
   ]
     .filter(Boolean)
@@ -385,16 +394,27 @@ export async function renderPassPng(pass: PassView): Promise<Blob> {
   }
   ctx.fillStyle = "#1C1915";
   ctx.font = "600 40px Fraunces, Georgia, serif";
-  ctx.fillText(pass.name, 72, 530);
+  ctx.fillText(pass.name, 72, 520);
   ctx.font = "500 24px Outfit, sans-serif";
   ctx.fillStyle = "#5C574F";
-  ctx.fillText(`${sidePhrase(pass.side)}  ·  ${pass.party === 1 ? "1 persona" : `${pass.party} personas`}`, 72, 572);
+  ctx.fillText(`${sidePhrase(pass.side)}  ·  ${pass.party === 1 ? "1 persona" : `${pass.party} personas`}`, 72, 560);
+  if (pass.door) {
+    ctx.fillStyle = "#8C5A32";
+    ctx.font = "600 24px Outfit, sans-serif";
+    ctx.fillText(`Acceso asignado: ${pass.door}`, 72, 598);
+  }
   const qrSize = 460;
   const qx = (canvas.width - qrSize) / 2;
   ctx.drawImage(image, qx, 640, qrSize, qrSize);
   ctx.font = "400 20px Outfit, sans-serif";
   ctx.fillStyle = "#5C574F";
-  ctx.fillText("Muestra este código en la entrada. No se puede reutilizar.", 72, 1160);
+  ctx.fillText(
+    pass.door
+      ? `Válido únicamente en ${pass.door}. No se puede reutilizar.`
+      : "Muestra este código en la entrada. No se puede reutilizar.",
+    72,
+    1160,
+  );
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("No se pudo guardar el pase");
   return blob;

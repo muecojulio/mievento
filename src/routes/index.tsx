@@ -87,7 +87,8 @@ function Home() {
             <li>5. Si no trae el código, búscalo por nombre. Si no estaba en la lista, anótalo en la puerta.</li>
             <li>6. Si el pase dice cuatro y llegan dos, bajas el número. El total cuenta solo a quienes entraron.</li>
             <li>7. Si repiten el mismo código, aunque sea una captura, la tablet lo rechaza.</li>
-            <li>8. Al terminar, cierra el evento. Si reciclas los códigos, las mismas imágenes vuelven a servir.</li>
+            <li>8. Si usas diferentes puertas sin internet, activa «Puerta asignada por QR» o enlaza las tablets por red local para impedir que un mismo QR pase en dos entradas.</li>
+            <li>9. Al terminar, cierra el evento. Si reciclas los códigos, las mismas imágenes vuelven a servir.</li>
           </ol>
           <div className="mt-5 flex flex-wrap gap-3 text-sm">
             <Link to="/wallet" className="min-h-11 inline-flex items-center font-medium text-brass">

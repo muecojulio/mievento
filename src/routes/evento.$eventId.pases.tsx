@@ -196,6 +196,7 @@ function PassesPage() {
     try {
       const cards: PrintCard[] = [];
       for (const guest of list) {
+        const pass = passFromGuest(current, guest);
         const qr = await qrDataUrl(guest.token, 240, motifForToken(guest.token));
         cards.push({
           name: guest.name,
@@ -203,6 +204,7 @@ function PassesPage() {
           party: guest.party,
           token: guest.token,
           qr,
+          door: pass.door || undefined,
         });
         setPrinting({ done: cards.length, total: list.length });
       }
@@ -343,6 +345,7 @@ function PassRow({
           <p className="font-display text-2xl">{guest.name}</p>
           <p className="text-sm text-stone">
             {sidePhrase(guest.side)} · {peopleLabel(guest.party)} · {guest.status}
+            {pass.door ? ` · ${pass.door}` : ""}
           </p>
           <p className="mt-1 truncate text-sm text-ink-soft">{guest.phone || guest.email || "Sin teléfono ni correo"}</p>
           <p className="mt-1 text-xs text-stone">

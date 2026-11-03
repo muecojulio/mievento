@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { TableMap } from "@/components/mievento/table-map";
 import { usePinGuard } from "@/components/mievento/pin-gate";
 import { Btn, fieldClass } from "@/components/mievento/ui";
+import { assignedDoorForGuest, normalizeDoors } from "@/lib/mievento/doors";
 import { downloadBlob } from "@/lib/mievento/pass";
 import {
   contactClashes,
@@ -18,7 +19,7 @@ import {
 import { coupleNames, foldText, peopleLabel, sideLabel, slugFile } from "@/lib/mievento/format";
 import { NO_TABLE, tableGroups, type TableGroup } from "@/lib/mievento/tables";
 import { addGuests, clearGuests, removeGuest, saveGuest, useEvent, useGuests } from "@/lib/mievento/store";
-import type { DraftGuest, Guest, Side } from "@/lib/mievento/types";
+import type { DraftGuest, Guest, Side, WeddingEvent } from "@/lib/mievento/types";
 
 export const Route = createFileRoute("/evento/$eventId/invitados")({
   head: () => ({ meta: [{ title: "Invitados · Mi Evento" }] }),
@@ -68,9 +69,10 @@ function GuestsPage() {
         if (guest.side !== filter) return false;
       } else if (filter !== "todos" && guest.status !== filter) return false;
       if (!q) return true;
-      return foldText(`${guest.name} ${guest.email} ${guest.phone} ${guest.note}`).includes(q);
+      const doorLabel = assignedDoorForGuest(event, guest)?.name ?? guest.admittedDoor ?? guest.door ?? "";
+      return foldText(`${guest.name} ${guest.email} ${guest.phone} ${guest.note} ${doorLabel}`).includes(q);
     });
-  }, [guests, filter, query]);
+  }, [guests, filter, query, event]);
   const groups = useMemo(() => tableGroups(visible), [visible]);
 
   if (!event) return null;
@@ -261,7 +263,7 @@ function GuestsPage() {
       ) : view === "lista" ? (
         <ul className="mt-4 divide-y divide-line rounded-3xl border border-line">
           {visible.map((guest) => (
-            <GuestRow key={guest.id} guest={guest} />
+            <GuestRow key={guest.id} event={event} guest={guest} />
           ))}
         </ul>
       ) : view === "croquis" ? (
@@ -399,13 +401,16 @@ function GuestsPage() {
   );
 }
 
-function GuestRow({ guest }: { guest: Guest }) {
+function GuestRow({ event, guest }: { event: WeddingEvent; guest: Guest }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(guest.name);
   const [email, setEmail] = useState(guest.email);
   const [phone, setPhone] = useState(guest.phone);
   const [party, setParty] = useState(String(guest.party));
   const [note, setNote] = useState(guest.note);
+  const [door, setDoor] = useState(guest.door ?? "");
+  const doors = normalizeDoors(event.doors);
+  const assigned = assignedDoorForGuest(event, guest);
 
   async function changeSide(side: Side) {
     await saveGuest({ ...guest, side });
@@ -418,6 +423,7 @@ function GuestRow({ guest }: { guest: Guest }) {
           <p className="font-medium">{guest.name}</p>
           <p className="text-sm text-stone">
             {sideLabel(guest.side)} · {guest.status === "Ingresado" && guest.arrived != null && guest.arrived !== guest.party ? `${guest.arrived} de ${peopleLabel(guest.party)}` : peopleLabel(guest.party)} · {guest.status}
+            {assigned ? ` · ${assigned.name}` : guest.admittedDoor ? ` · ${guest.admittedDoor}` : ""}
             {guest.note ? ` · ${guest.note}` : ""}
           </p>
         </div>
@@ -438,7 +444,16 @@ function GuestRow({ guest }: { guest: Guest }) {
             formEvent.preventDefault();
             const count = Math.min(20, Math.max(1, Math.round(Number(party) || 1)));
             const arrived = guest.arrived == null ? null : Math.min(guest.arrived, count);
-            await saveGuest({ ...guest, name: name.trim() || guest.name, email: email.trim(), phone: phone.trim(), party: count, arrived, note: note.trim() });
+            await saveGuest({
+              ...guest,
+              name: name.trim() || guest.name,
+              email: email.trim(),
+              phone: phone.trim(),
+              party: count,
+              arrived,
+              note: note.trim(),
+              door: door.trim() || null,
+            });
             setOpen(false);
           }}
         >
@@ -447,6 +462,21 @@ function GuestRow({ guest }: { guest: Guest }) {
           <input className={fieldClass} value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Correo" placeholder="Correo" />
           <input className={fieldClass} value={party} onChange={(e) => setParty(e.target.value)} aria-label="Personas" inputMode="numeric" />
           <input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Mesa" placeholder="Mesa" />
+          {doors.length >= 2 ? (
+            <select
+              className={fieldClass}
+              value={door}
+              onChange={(e) => setDoor(e.target.value)}
+              aria-label="Puerta asignada"
+            >
+              <option value="">Puerta según regla del evento</option>
+              {doors.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <div className="flex gap-2">
             <Btn type="submit">Guardar</Btn>
             <Btn variant="quiet" onClick={() => void removeGuest(guest.id)}>

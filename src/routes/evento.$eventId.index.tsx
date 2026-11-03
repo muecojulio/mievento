@@ -1,12 +1,13 @@
 import { EncryptedBackup } from "@/components/mievento/backup-controls";
+import { DoorProtectionBanner, DoorSetupSection } from "@/components/mievento/door-controls";
 import { LocalSync } from "@/components/mievento/local-sync";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ScanLine } from "lucide-react";
 import { EventForm } from "@/components/mievento/event-form";
 import { EventInsights } from "@/components/mievento/place-extras";
 import { usePinGuard } from "@/components/mievento/pin-gate";
-import { Btn, Monogram, OnlineNote, usePhotoUrl } from "@/components/mievento/ui";
+import { Btn, Monogram, usePhotoUrl } from "@/components/mievento/ui";
 import { downloadBlob } from "@/lib/mievento/pass";
 import { coupleNames, entryLabel, formatClock, formatLongDate, peopleLabel, sideLabel, slugFile, tally } from "@/lib/mievento/format";
 import { closingCsv } from "@/lib/mievento/excel";
@@ -30,9 +31,23 @@ function Dashboard() {
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmRecycle, setConfirmRecycle] = useState(false);
   const [notice, setNotice] = useState("");
+  const syncAnchorRef = useRef<HTMLDivElement>(null);
   const pinGuard = usePinGuard();
   const navigate = useNavigate();
   if (!event) return null;
+
+  function openConnectTablets() {
+    pinGuard.guard(() => {
+      setSecureTools(true);
+      window.setTimeout(() => {
+        syncAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 60);
+    });
+  }
+
+  function scrollToDoorSetup() {
+    document.getElementById("control-puertas")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   const recent = guests
     .filter((guest) => guest.status === "Ingresado" && guest.scannedAt)
@@ -41,7 +56,11 @@ function Dashboard() {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8">
-      <OnlineNote />
+      <DoorProtectionBanner
+        event={event}
+        onOpenSetup={scrollToDoorSetup}
+        onConnectTablets={openConnectTablets}
+      />
       <header className="mt-4 overflow-hidden rounded-3xl border border-line">
         <div className="aspect-[16/7]">
           {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : <Monogram groom={event.groom} bride={event.bride} />}
@@ -120,6 +139,7 @@ function Dashboard() {
                   <p className="font-medium">{guest.name}</p>
                   <p className="text-sm text-stone">
                     {sideLabel(guest.side)} · {guest.arrived != null && guest.arrived !== guest.party ? `${guest.arrived} de ${peopleLabel(guest.party)}` : peopleLabel(guest.arrived ?? guest.party)}
+                    {guest.admittedDoor ? ` · ${guest.admittedDoor}` : ""}
                     {guest.entry && guest.entry !== "pase" ? ` · ${entryLabel(guest.entry)}` : ""}
                     {guest.note ? ` · ${guest.note}` : ""}
                   </p>
@@ -130,6 +150,12 @@ function Dashboard() {
           </ul>
         )}
       </section>
+
+      <DoorSetupSection
+        event={event}
+        guests={guests}
+        onConnectTablets={openConnectTablets}
+      />
 
       <section className="mt-8 rounded-3xl border border-line p-4">
         <h2 className="font-display text-2xl">En esta tablet</h2>
@@ -155,7 +181,11 @@ function Dashboard() {
         </p>
       </section>
 
-      <div className="mt-6"><Btn variant="ghost" onClick={() => pinGuard.guard(() => setSecureTools(true))}>Copias y conexión de tablets</Btn></div>
+      <div ref={syncAnchorRef} className="mt-6">
+        <Btn variant="ghost" onClick={() => pinGuard.guard(() => setSecureTools(true))}>
+          Copias y conexión de tablets
+        </Btn>
+      </div>
       {secureTools ? <><section className="mt-6 rounded-3xl border border-line p-4">
         <EncryptedBackup eventId={event.id} filename={`mievento-${slugFile(event)}.json`} />
       </section>

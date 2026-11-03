@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Camera, ImagePlus, Minus, Plus, UserPlus } from "lucide-react";
+import { Camera, DoorOpen, ImagePlus, Minus, Plus, UserPlus } from "lucide-react";
+import { DoorProtectionBanner, DoorSetupSection } from "@/components/mievento/door-controls";
+import { LocalSync } from "@/components/mievento/local-sync";
 import { Btn, fieldClass, Switch } from "@/components/mievento/ui";
 import { extractToken } from "@/lib/mievento/crypto";
+import { assignedDoorForGuest, effectiveDoorMode, useTabletDoor } from "@/lib/mievento/doors";
 import { formatClock, peopleLabel, sideLabel, sidePhrase, tally } from "@/lib/mievento/format";
 import { matchLabel, searchGuests } from "@/lib/mievento/search";
 import { playSignal, setSignalEnabled, signalEnabled } from "@/lib/mievento/signal";
-import { addWalkIn, admitByName, admitToken, revertAdmit, setArrived, useEvent, useGuests } from "@/lib/mievento/store";
+import {
+  addWalkIn,
+  admitByName,
+  admitToken,
+  revertAdmit,
+  setArrived,
+  useEvent,
+  useGuests,
+} from "@/lib/mievento/store";
 import type { AdmitResult, Guest, Side } from "@/lib/mievento/types";
 
 export const Route = createFileRoute("/evento/$eventId/escaner")({
@@ -21,6 +32,7 @@ function ScannerPage() {
   const event = useEvent(eventId);
   const guests = useGuests(eventId);
   const counts = useMemo(() => tally(guests), [guests]);
+  const tabletDoor = useTabletDoor(event);
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<Stoppable | null>(null);
   const ignoreRef = useRef<{ token: string; until: number } | null>(null);
@@ -38,6 +50,7 @@ function ScannerPage() {
   const [doorName, setDoorName] = useState("");
   const [doorSide, setDoorSide] = useState<Side>("novio");
   const [doorParty, setDoorParty] = useState(1);
+  const [doorPanel, setDoorPanel] = useState<"none" | "setup" | "sync">("none");
 
   useEffect(() => {
     setSignal(signalEnabled());
@@ -51,6 +64,7 @@ function ScannerPage() {
 
   if (!event) return null;
 
+  const mode = effectiveDoorMode(event);
   const hasQuery = lookup.trim().length >= 2;
   const matches = searchGuests(guests, lookup, 8);
 
@@ -74,7 +88,11 @@ function ScannerPage() {
   async function admitDoor() {
     setBusy(true);
     try {
-      const outcome = await addWalkIn(eventId, { name: doorName, side: doorSide, party: doorParty });
+      const outcome = await addWalkIn(eventId, {
+        name: doorName,
+        side: doorSide,
+        party: doorParty,
+      });
       showOutcome(outcome);
       if (outcome.ok) {
         setDoorName("");
@@ -102,14 +120,24 @@ function ScannerPage() {
     if (!token) return;
     if (fromCamera) {
       if (pendingRef.current === token) return;
-      if (ignoreRef.current && ignoreRef.current.token === token && now < ignoreRef.current.until) return;
+      if (ignoreRef.current && ignoreRef.current.token === token && now < ignoreRef.current.until)
+        return;
       pendingRef.current = token;
     }
     setBusy(true);
     try {
       const outcome = await admitToken(eventId, raw);
-      if (fromCamera && outcome.ok) ignoreRef.current = { token: outcome.guest.token, until: Date.now() + 8000 };
-      else if (fromCamera && !outcome.ok && outcome.reason === "used") ignoreRef.current = { token, until: Date.now() + 2200 };
+      if (fromCamera && outcome.ok) {
+        ignoreRef.current = { token: outcome.guest.token, until: Date.now() + 8000 };
+      } else if (
+        fromCamera &&
+        !outcome.ok &&
+        (outcome.reason === "used" ||
+          outcome.reason === "wrong-door" ||
+          outcome.reason === "door-offline")
+      ) {
+        ignoreRef.current = { token, until: Date.now() + 2200 };
+      }
       setResult(outcome);
       playSignal(outcome.ok);
       if (!continuousRef.current) await stopCamera();
@@ -202,8 +230,25 @@ function ScannerPage() {
 
   return (
     <main className="mx-auto w-full max-w-xl px-4 py-6">
-      <p className="text-sm font-medium text-brass">{event.groom} y {event.bride}</p>
-      <h1 className="mt-1 font-display text-4xl">Escanear</h1>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-brass">
+            {event.groom} y {event.bride}
+            {tabletDoor ? ` · ${tabletDoor.name}` : ""}
+          </p>
+          <h1 className="mt-1 font-display text-4xl">Escanear</h1>
+        </div>
+        <button
+          type="button"
+          data-testid="scanner-doors-toggle"
+          onClick={() => setDoorPanel((cur) => (cur === "setup" ? "none" : "setup"))}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-line px-3.5 text-xs font-medium text-ink-soft transition-colors hover:border-brass"
+        >
+          <DoorOpen className="size-4 text-brass" />
+          {mode === "unica" ? "Puertas" : tabletDoor ? tabletDoor.name : "Elegir puerta"}
+        </button>
+      </div>
+
       <p className="mt-2 text-sm text-stone">
         {event.closed
           ? "El evento ya terminó. El lector no deja pasar hasta que recicles los códigos."
@@ -211,8 +256,43 @@ function ScannerPage() {
       </p>
       <p className="mt-3 text-sm tabular-nums text-ink-soft">
         {peopleLabel(counts.totalPeople)} dentro · {peopleLabel(counts.pendingPeople)} fuera
-        <span className="text-stone"> · Novio {counts.novioPeople} · Novia {counts.noviaPeople}</span>
+        <span className="text-stone">
+          {" "}
+          · Novio {counts.novioPeople} · Novia {counts.noviaPeople}
+        </span>
       </p>
+
+      <DoorProtectionBanner
+        event={event}
+        onOpenSetup={() => setDoorPanel((cur) => (cur === "setup" ? "none" : "setup"))}
+        onConnectTablets={() => setDoorPanel((cur) => (cur === "sync" ? "none" : "sync"))}
+      />
+
+      {doorPanel === "setup" ? (
+        <div className="mt-2">
+          <DoorSetupSection
+            event={event}
+            guests={guests}
+            onConnectTablets={() => setDoorPanel("sync")}
+          />
+          <div className="mt-2 flex justify-end">
+            <Btn variant="quiet" onClick={() => setDoorPanel("none")}>
+              Cerrar ajustes de puertas
+            </Btn>
+          </div>
+        </div>
+      ) : null}
+
+      {doorPanel === "sync" ? (
+        <div className="mt-2">
+          <LocalSync eventId={event.id} />
+          <div className="mt-2 flex justify-end">
+            <Btn variant="quiet" onClick={() => setDoorPanel("none")}>
+              Cerrar conexión de tablets
+            </Btn>
+          </div>
+        </div>
+      ) : null}
 
       {result && !live ? (
         <ScanVerdict
@@ -220,6 +300,8 @@ function ScannerPage() {
           tone={tone}
           onClear={() => setResult(null)}
           onAgain={() => void startCamera()}
+          onConnectTablets={() => setDoorPanel("sync")}
+          onOpenDoorSetup={() => setDoorPanel("setup")}
           onArrived={async (count) => {
             if (!result.ok) return;
             const next = await setArrived(result.guest.id, count);
@@ -232,7 +314,8 @@ function ScannerPage() {
         <section className="mt-5 rounded-3xl border border-line p-5">
           <h2 className="font-display text-3xl">Evento terminado</h2>
           <p className="mt-2 text-sm text-stone">
-            El lector no deja pasar. En el tablero puedes reciclar los códigos: las mismas imágenes vuelven a servir.
+            El lector no deja pasar. En el tablero puedes reciclar los códigos: las mismas imágenes
+            vuelven a servir.
           </p>
           <Link
             to="/evento/$eventId"
@@ -244,209 +327,256 @@ function ScannerPage() {
         </section>
       ) : (
         <>
-      <div className={result && !live ? "hidden" : "relative mt-5 overflow-hidden rounded-3xl bg-ink"}>
-        <video ref={videoRef} className={live ? "aspect-[3/4] w-full object-cover" : "hidden"} playsInline muted autoPlay />
-        {!live ? (
-          <div className="flex aspect-[3/4] flex-col items-center justify-center px-6 text-center">
-            <p className="font-display text-3xl text-paper">Listo en la puerta</p>
-            <p className="mt-2 max-w-xs text-sm text-paper-2">La cámara permanece apagada hasta que pulses el botón.</p>
+          <div
+            className={
+              result && !live ? "hidden" : "relative mt-5 overflow-hidden rounded-3xl bg-ink"
+            }
+          >
+            <video
+              ref={videoRef}
+              className={live ? "aspect-[3/4] w-full object-cover" : "hidden"}
+              playsInline
+              muted
+              autoPlay
+            />
+            {!live ? (
+              <div className="flex aspect-[3/4] flex-col items-center justify-center px-6 text-center">
+                <p className="font-display text-3xl text-paper">
+                  {tabletDoor ? `Listo en ${tabletDoor.name}` : "Listo en la puerta"}
+                </p>
+                <p className="mt-2 max-w-xs text-sm text-paper-2">
+                  La cámara permanece apagada hasta que pulses el botón.
+                </p>
+              </div>
+            ) : (
+              <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-paper/80" />
+            )}
           </div>
-        ) : (
-          <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-paper/80" />
-        )}
-      </div>
 
-      <div className="mt-4 grid gap-2">
-        {live ? (
-          <Btn variant="ink" onClick={() => void stopCamera()}>
-            Cerrar cámara
-          </Btn>
-        ) : (
-          <Btn data-testid="scan-open" onClick={() => void startCamera()} disabled={busy}>
-            <Camera className="size-4" />
-            Escanear código
-          </Btn>
-        )}
-        <label className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full border border-line text-sm font-medium">
-          <ImagePlus className="size-4" />
-          Leer una foto del código
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void onImage(file);
-            }}
-          />
-        </label>
-      </div>
-      {cameraError ? <p className="mt-3 text-sm text-alert">{cameraError}</p> : null}
+          <div className="mt-4 grid gap-2">
+            {live ? (
+              <Btn variant="ink" onClick={() => void stopCamera()}>
+                Cerrar cámara
+              </Btn>
+            ) : (
+              <Btn data-testid="scan-open" onClick={() => void startCamera()} disabled={busy}>
+                <Camera className="size-4" />
+                Escanear código
+              </Btn>
+            )}
+            <label className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full border border-line text-sm font-medium">
+              <ImagePlus className="size-4" />
+              Leer una foto del código
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={(ev) => {
+                  const file = ev.target.files?.[0];
+                  ev.target.value = "";
+                  if (file) void onImage(file);
+                }}
+              />
+            </label>
+          </div>
+          {cameraError ? <p className="mt-3 text-sm text-alert">{cameraError}</p> : null}
 
-      <div className="mt-4 rounded-3xl border border-line px-4 py-2">
-        <Switch
-          checked={continuous}
-          onChange={(value) => {
-            continuousRef.current = value;
-            setContinuous(value);
-          }}
-          label="Lectura continua"
-          hint="Déjala apagada si prefieres un botón por persona."
-        />
-        <Switch
-          checked={signal}
-          onChange={(value) => {
-            setSignal(value);
-            setSignalEnabled(value);
-          }}
-          label="Señal al leer"
-          hint="Un tono breve y una vibración."
-        />
-      </div>
+          <div className="mt-4 rounded-3xl border border-line px-4 py-2">
+            <Switch
+              checked={continuous}
+              onChange={(value) => {
+                continuousRef.current = value;
+                setContinuous(value);
+              }}
+              label="Lectura continua"
+              hint="Déjala apagada si prefieres un botón por persona."
+            />
+            <Switch
+              checked={signal}
+              onChange={(value) => {
+                setSignal(value);
+                setSignalEnabled(value);
+              }}
+              label="Señal al leer"
+              hint="Un tono breve y una vibración."
+            />
+          </div>
 
-      <form
-        className="mt-4 grid gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void handleRaw(manual);
-        }}
-      >
-        <label className="text-sm font-medium text-ink-soft" htmlFor="manual-code">
-          O escribe el código
-        </label>
-        <input
-          id="manual-code"
-          data-testid="manual-code"
-          className={fieldClass}
-          value={manual}
-          onChange={(event) => setManual(event.target.value)}
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="ME1…"
-        />
-        <Btn type="submit" variant="ghost" data-testid="manual-submit" disabled={!manual.trim() || busy}>
-          Validar código
-        </Btn>
-      </form>
-
-      <section className="mt-6 rounded-3xl border border-line p-4">
-        <h2 className="font-display text-2xl">Sin código</h2>
-        <p className="mt-1 text-sm text-stone">
-          Busca por nombre, mesa, teléfono o correo y autoriza el ingreso. El pase queda usado igual.
-        </p>
-        <input
-          className={`${fieldClass} mt-3`}
-          value={lookup}
-          onChange={(event) => setLookup(event.target.value)}
-          placeholder="Nombre, mesa, teléfono o correo"
-          aria-label="Buscar por nombre, mesa, teléfono o correo"
-          autoCapitalize="words"
-        />
-        {hasQuery && matches.length === 0 ? (
-          <p className="mt-3 text-sm text-stone">Nadie coincide con ese nombre, mesa, teléfono o correo.</p>
-        ) : null}
-        {matches.length > 0 ? (
-          <ul className="mt-3 divide-y divide-line">
-            {matches.map(({ guest, field }) => (
-              <li key={guest.id} className="flex items-center justify-between gap-3 py-2">
-                <div className="min-w-0">
-                  <p className="font-medium">{guest.name}</p>
-                  <p className="text-sm text-stone">
-                    {matchLabel(field)} · {sideLabel(guest.side)} · {peopleLabel(guest.party)}
-                    {guest.note ? ` · ${guest.note}` : ""}
-                    {field === "teléfono" ? ` · ${guest.phone}` : ""}
-                    {field === "correo" ? ` · ${guest.email}` : ""}
-                    {guest.status === "Ingresado" ? " · Ya ingresó" : ""}
-                  </p>
-                </div>
-                {guest.status === "Pendiente" ? (
-                  <Btn className="shrink-0" disabled={busy} onClick={() => void authorize(guest)}>
-                    Autorizar
-                  </Btn>
-                ) : (
-                  <span className="shrink-0 text-sm text-stone">{guest.scannedAt ? formatClock(guest.scannedAt) : "Dentro"}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
-
-      <section className="mt-4 rounded-3xl border border-line p-4">
-        <button
-          type="button"
-          className="flex min-h-11 w-full items-center justify-between gap-3 text-left"
-          onClick={() => setDoorOpen((value) => !value)}
-        >
-          <span>
-            <span className="flex items-center gap-2 font-display text-2xl">
-              <UserPlus className="size-5 text-brass" />
-              Invitado de último momento
-            </span>
-            <span className="mt-1 block text-sm text-stone">Alguien que no estaba en el Excel. Entra y cuenta en el total.</span>
-          </span>
-        </button>
-        {doorOpen ? (
           <form
-            className="mt-4 grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void admitDoor();
+            className="mt-4 grid gap-2"
+            onSubmit={(ev) => {
+              ev.preventDefault();
+              void handleRaw(manual);
             }}
           >
+            <label className="text-sm font-medium text-ink-soft" htmlFor="manual-code">
+              O escribe el código
+            </label>
             <input
+              id="manual-code"
+              data-testid="manual-code"
               className={fieldClass}
-              value={doorName}
-              onChange={(event) => setDoorName(event.target.value)}
-              placeholder="Nombre"
-              aria-label="Nombre del invitado"
-              required
+              value={manual}
+              onChange={(ev) => setManual(ev.target.value)}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="ME1…"
             />
-            <div className="grid grid-cols-2 gap-2">
-              {(["novio", "novia"] as const).map((side) => (
-                <button
-                  key={side}
-                  type="button"
-                  onClick={() => setDoorSide(side)}
-                  className={`min-h-11 rounded-full text-sm font-medium ${doorSide === side ? "bg-ink text-paper" : "border border-line text-ink-soft"}`}
-                >
-                  {sideLabel(side)}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium">Personas</p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Menos personas"
-                  disabled={doorParty <= 1}
-                  onClick={() => setDoorParty((value) => Math.max(1, value - 1))}
-                  className="inline-flex size-11 items-center justify-center rounded-full border border-line disabled:opacity-40"
-                >
-                  <Minus className="size-4" />
-                </button>
-                <span className="w-8 text-center text-lg tabular-nums">{doorParty}</span>
-                <button
-                  type="button"
-                  aria-label="Más personas"
-                  disabled={doorParty >= 20}
-                  onClick={() => setDoorParty((value) => Math.min(20, value + 1))}
-                  className="inline-flex size-11 items-center justify-center rounded-full border border-line disabled:opacity-40"
-                >
-                  <Plus className="size-4" />
-                </button>
-              </div>
-            </div>
-            <Btn type="submit" disabled={busy || !doorName.trim()}>
-              Dejar entrar
+            <Btn
+              type="submit"
+              variant="ghost"
+              data-testid="manual-submit"
+              disabled={!manual.trim() || busy}
+            >
+              Validar código
             </Btn>
           </form>
-        ) : null}
-      </section>
+
+          <section className="mt-6 rounded-3xl border border-line p-4">
+            <h2 className="font-display text-2xl">Sin código</h2>
+            <p className="mt-1 text-sm text-stone">
+              Busca por nombre, mesa, teléfono o correo y autoriza el ingreso. El pase queda usado
+              igual.
+            </p>
+            <input
+              className={`${fieldClass} mt-3`}
+              value={lookup}
+              onChange={(ev) => setLookup(ev.target.value)}
+              placeholder="Nombre, mesa, teléfono o correo"
+              aria-label="Buscar por nombre, mesa, teléfono o correo"
+              autoCapitalize="words"
+            />
+            {hasQuery && matches.length === 0 ? (
+              <p className="mt-3 text-sm text-stone">
+                Nadie coincide con ese nombre, mesa, teléfono o correo.
+              </p>
+            ) : null}
+            {matches.length > 0 ? (
+              <ul className="mt-3 divide-y divide-line">
+                {matches.map(({ guest, field }) => {
+                  const assigned = assignedDoorForGuest(event, guest);
+                  const otherDoor =
+                    mode === "asignada" &&
+                    tabletDoor != null &&
+                    assigned != null &&
+                    assigned.id !== tabletDoor.id;
+                  return (
+                    <li key={guest.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="font-medium">{guest.name}</p>
+                        <p className="text-sm text-stone">
+                          {matchLabel(field)} · {sideLabel(guest.side)} · {peopleLabel(guest.party)}
+                          {assigned ? ` · ${assigned.name}` : ""}
+                          {guest.note ? ` · ${guest.note}` : ""}
+                          {field === "teléfono" ? ` · ${guest.phone}` : ""}
+                          {field === "correo" ? ` · ${guest.email}` : ""}
+                          {guest.status === "Ingresado"
+                            ? ` · Ya ingresó${guest.admittedDoor ? ` (${guest.admittedDoor})` : ""}`
+                            : ""}
+                        </p>
+                      </div>
+                      {guest.status === "Pendiente" ? (
+                        otherDoor ? (
+                          <span className="shrink-0 rounded-full bg-alert-soft px-3 py-1.5 text-xs font-medium text-alert">
+                            Solo {assigned.name}
+                          </span>
+                        ) : (
+                          <Btn
+                            className="shrink-0"
+                            disabled={busy}
+                            onClick={() => void authorize(guest)}
+                          >
+                            Autorizar
+                          </Btn>
+                        )
+                      ) : (
+                        <span className="shrink-0 text-sm text-stone">
+                          {guest.scannedAt ? formatClock(guest.scannedAt) : "Dentro"}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </section>
+
+          <section className="mt-4 rounded-3xl border border-line p-4">
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center justify-between gap-3 text-left"
+              onClick={() => setDoorOpen((value) => !value)}
+            >
+              <span>
+                <span className="flex items-center gap-2 font-display text-2xl">
+                  <UserPlus className="size-5 text-brass" />
+                  Invitado de último momento
+                </span>
+                <span className="mt-1 block text-sm text-stone">
+                  Alguien que no estaba en el Excel. Entra y cuenta en el total.
+                </span>
+              </span>
+            </button>
+            {doorOpen ? (
+              <form
+                className="mt-4 grid gap-3"
+                onSubmit={(ev) => {
+                  ev.preventDefault();
+                  void admitDoor();
+                }}
+              >
+                <input
+                  className={fieldClass}
+                  value={doorName}
+                  onChange={(ev) => setDoorName(ev.target.value)}
+                  placeholder="Nombre"
+                  aria-label="Nombre del invitado"
+                  required
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  {(["novio", "novia"] as const).map((side) => (
+                    <button
+                      key={side}
+                      type="button"
+                      onClick={() => setDoorSide(side)}
+                      className={`min-h-11 rounded-full text-sm font-medium ${doorSide === side ? "bg-ink text-paper" : "border border-line text-ink-soft"}`}
+                    >
+                      {sideLabel(side)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">Personas</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Menos personas"
+                      disabled={doorParty <= 1}
+                      onClick={() => setDoorParty((value) => Math.max(1, value - 1))}
+                      className="inline-flex size-11 items-center justify-center rounded-full border border-line disabled:opacity-40"
+                    >
+                      <Minus className="size-4" />
+                    </button>
+                    <span className="w-8 text-center text-lg tabular-nums">{doorParty}</span>
+                    <button
+                      type="button"
+                      aria-label="Más personas"
+                      disabled={doorParty >= 20}
+                      onClick={() => setDoorParty((value) => Math.min(20, value + 1))}
+                      className="inline-flex size-11 items-center justify-center rounded-full border border-line disabled:opacity-40"
+                    >
+                      <Plus className="size-4" />
+                    </button>
+                  </div>
+                </div>
+                <Btn type="submit" disabled={busy || !doorName.trim()}>
+                  Dejar entrar
+                </Btn>
+              </form>
+            ) : null}
+          </section>
         </>
       )}
     </main>
@@ -458,20 +588,36 @@ function ScanVerdict({
   tone,
   onClear,
   onAgain,
+  onConnectTablets,
+  onOpenDoorSetup,
   onArrived,
 }: {
   result: Exclude<AdmitResult, null>;
   tone: string;
   onClear: () => void;
   onAgain: () => void;
+  onConnectTablets: () => void;
+  onOpenDoorSetup: () => void;
   onArrived: (count: number) => void;
 }) {
   const arrived = result.ok ? (result.guest.arrived ?? result.guest.party) : 0;
+
+  let alertHeader = "Aviso de la puerta";
+  if (!result.ok) {
+    if (result.duplicate) alertHeader = "Alerta de la puerta · código repetido";
+    else if (result.reason === "wrong-door") alertHeader = "Alerta de la puerta · otra entrada";
+    else if (result.reason === "door-offline")
+      alertHeader = "Aviso · conexión requerida entre puertas";
+  }
+
   return (
     <section data-testid="scan-result" className={`rise mt-5 rounded-3xl p-5 ${tone}`}>
       {result.ok ? (
         <>
-          <p className="text-sm font-medium">Ingreso autorizado</p>
+          <p className="text-sm font-medium">
+            Ingreso autorizado
+            {result.guest.admittedDoor ? ` · ${result.guest.admittedDoor}` : ""}
+          </p>
           <h2 className="mt-2 font-display text-4xl">{result.guest.name}</h2>
           <p className="mt-2 text-base">
             {sidePhrase(result.guest.side)}
@@ -511,6 +657,7 @@ function ScanVerdict({
           <p className="mt-3 text-sm">
             Quedó como Ingresado
             {result.guest.scannedAt ? ` · ${formatClock(result.guest.scannedAt)}` : ""}
+            {result.guest.admittedDoor ? ` · ${result.guest.admittedDoor}` : ""}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -529,23 +676,64 @@ function ScanVerdict({
         </>
       ) : (
         <>
-          <p className="text-sm font-medium">
-            {result.duplicate ? "Alerta de la puerta · código repetido" : "Aviso de la puerta"}
-          </p>
+          <p className="text-sm font-medium">{alertHeader}</p>
           <h2 className="mt-1 font-display text-3xl leading-tight break-words">{result.message}</h2>
-          {result.guest ? (
-            <h3 className="mt-3 font-display text-2xl">{result.guest.name}</h3>
-          ) : null}
+          {result.guest ? <h3 className="mt-3 font-display text-2xl">{result.guest.name}</h3> : null}
           {result.duplicate ? (
             <div data-testid="duplicate-alert">
               <p className="mt-2 text-base">
                 {result.firstEntryAt
-                  ? `Primera entrada a las ${formatClock(result.firstEntryAt)}.`
-                  : "Este pase ya se usó."}
+                  ? `Primera entrada a las ${formatClock(result.firstEntryAt)}${result.doorName ? ` en ${result.doorName}` : ""}.`
+                  : `Este pase ya se usó${result.doorName ? ` en ${result.doorName}` : ""}.`}
               </p>
               <p className="mt-1 text-sm">
-                Puede ser una captura de pantalla del mismo código. No se permite un segundo ingreso.
+                Puede ser una captura de pantalla del mismo código. No se permite un segundo
+                ingreso.
               </p>
+            </div>
+          ) : null}
+          {result.reason === "wrong-door" ? (
+            <div data-testid="wrong-door-alert" className="mt-2 text-sm">
+              <p className="text-base">
+                Esta tablet controla <strong>{result.currentDoorName}</strong> y este código
+                corresponde a <strong>{result.doorName}</strong>.
+              </p>
+              <p className="mt-1">
+                Para evitar sin internet que un mismo código QR se pase en diferentes puertas, cada
+                pase abre únicamente en su acceso asignado.
+              </p>
+            </div>
+          ) : null}
+          {result.reason === "door-offline" ? (
+            <div data-testid="door-offline-alert" className="mt-2 text-sm">
+              <p>
+                Con entrada libre en varias puertas, <strong>tiene que haber internet</strong> (o
+                enlace activo entre tablets en la misma red local) para impedir que un mismo QR se
+                pase en diferentes puertas. Si no hay internet en el evento, activa{" "}
+                <strong>Puerta asignada por QR</strong>.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClear();
+                    onConnectTablets();
+                  }}
+                  className="inline-flex min-h-10 items-center rounded-full border border-paper px-4 text-xs font-medium text-paper"
+                >
+                  Conectar tablets
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClear();
+                    onOpenDoorSetup();
+                  }}
+                  className="inline-flex min-h-10 items-center rounded-full border border-paper px-4 text-xs font-medium text-paper"
+                >
+                  Activar Puerta asignada
+                </button>
+              </div>
             </div>
           ) : null}
           <p className="mt-2 text-sm">El paso no está autorizado.</p>
