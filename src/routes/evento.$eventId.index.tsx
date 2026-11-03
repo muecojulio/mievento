@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ScanLine } from "lucide-react";
 import { EventForm } from "@/components/mievento/event-form";
 import { EventInsights } from "@/components/mievento/place-extras";
+import { usePinGuard } from "@/components/mievento/pin-gate";
 import { Btn, Monogram, OnlineNote, usePhotoUrl } from "@/components/mievento/ui";
 import { downloadBlob } from "@/lib/mievento/pass";
 import { coupleNames, entryLabel, formatClock, formatLongDate, peopleLabel, sideLabel, slugFile, tally } from "@/lib/mievento/format";
@@ -26,6 +27,7 @@ function Dashboard() {
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmRecycle, setConfirmRecycle] = useState(false);
   const [notice, setNotice] = useState("");
+  const pinGuard = usePinGuard();
   const navigate = useNavigate();
   if (!event) return null;
 
@@ -67,7 +69,9 @@ function Dashboard() {
       <div className="mt-3">
         <Btn
           variant="ghost"
-          onClick={() => downloadBlob(closingCsv(event, guests), `cierre-${slugFile(event)}.csv`)}
+          onClick={() =>
+            pinGuard.guard(() => downloadBlob(closingCsv(event, guests), `cierre-${slugFile(event)}.csv`))
+          }
         >
           Descargar cierre
         </Btn>
@@ -81,8 +85,8 @@ function Dashboard() {
             El lector no deja pasar. Si reciclas los códigos, las mismas imágenes vuelven a servir y quien ya entró queda otra vez en pendiente. La firma no cambia.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Btn onClick={() => setConfirmRecycle(true)}>Reciclar códigos</Btn>
-            <Btn variant="ghost" onClick={() => void reopenEvent(event.id).then(() => setNotice("El evento sigue abierto. Los ingresos se conservan."))}>
+            <Btn onClick={() => pinGuard.guard(() => setConfirmRecycle(true))}>Reciclar códigos</Btn>
+            <Btn variant="ghost" onClick={() => pinGuard.guard(() => void reopenEvent(event.id).then(() => setNotice("El evento sigue abierto. Los ingresos se conservan.")))}>
               Seguir el evento
             </Btn>
           </div>
@@ -132,18 +136,23 @@ function Dashboard() {
           </Btn>
           <Btn
             variant="ghost"
-            onClick={async () => {
-              const json = await exportBackup(event.id);
-              downloadBlob(new Blob([json], { type: "application/json" }), `mievento-${slugFile(event)}.json`);
-            }}
+            onClick={() =>
+              pinGuard.guard(async () => {
+                const json = await exportBackup(event.id);
+                downloadBlob(new Blob([json], { type: "application/json" }), `mievento-${slugFile(event)}.json`);
+              })
+            }
           >
             Descargar copia
           </Btn>
-          <Btn variant="quiet" onClick={() => setConfirmDelete(true)}>
+          <Btn variant="quiet" onClick={pinGuard.openSettings}>
+            PIN de la tablet
+          </Btn>
+          <Btn variant="quiet" onClick={() => pinGuard.guard(() => setConfirmDelete(true))}>
             Eliminar evento
           </Btn>
           {event.closed ? null : (
-            <Btn variant="quiet" onClick={() => setConfirmFinish(true)}>
+            <Btn variant="quiet" onClick={() => pinGuard.guard(() => setConfirmFinish(true))}>
               Terminar evento
             </Btn>
           )}
@@ -249,6 +258,7 @@ function Dashboard() {
           </div>
         </div>
       ) : null}
+      {pinGuard.dialogs}
     </main>
   );
 }

@@ -3,7 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Camera, ImagePlus, Minus, Plus, UserPlus } from "lucide-react";
 import { Btn, fieldClass, Switch } from "@/components/mievento/ui";
 import { extractToken } from "@/lib/mievento/crypto";
-import { foldText, formatClock, peopleLabel, sideLabel, sidePhrase, tally } from "@/lib/mievento/format";
+import { formatClock, peopleLabel, sideLabel, sidePhrase, tally } from "@/lib/mievento/format";
+import { matchLabel, searchGuests } from "@/lib/mievento/search";
 import { playSignal, setSignalEnabled, signalEnabled } from "@/lib/mievento/signal";
 import { addWalkIn, admitByName, admitToken, revertAdmit, setArrived, useEvent, useGuests } from "@/lib/mievento/store";
 import type { AdmitResult, Guest, Side } from "@/lib/mievento/types";
@@ -50,14 +51,8 @@ function ScannerPage() {
 
   if (!event) return null;
 
-  const query = foldText(lookup.trim());
-  const matches =
-    query.length < 2
-      ? []
-      : guests
-          .filter((guest) => foldText(guest.name).includes(query))
-          .sort((a, b) => a.name.localeCompare(b.name, "es"))
-          .slice(0, 8);
+  const hasQuery = lookup.trim().length >= 2;
+  const matches = searchGuests(guests, lookup, 8);
 
   function showOutcome(outcome: AdmitResult) {
     setResult(outcome);
@@ -339,27 +334,31 @@ function ScannerPage() {
 
       <section className="mt-6 rounded-3xl border border-line p-4">
         <h2 className="font-display text-2xl">Sin código</h2>
-        <p className="mt-1 text-sm text-stone">Busca el nombre de la lista y autoriza el ingreso. El pase queda usado igual.</p>
+        <p className="mt-1 text-sm text-stone">
+          Busca por nombre, mesa, teléfono o correo y autoriza el ingreso. El pase queda usado igual.
+        </p>
         <input
           className={`${fieldClass} mt-3`}
           value={lookup}
           onChange={(event) => setLookup(event.target.value)}
-          placeholder="Buscar por nombre"
-          aria-label="Buscar por nombre"
+          placeholder="Nombre, mesa, teléfono o correo"
+          aria-label="Buscar por nombre, mesa, teléfono o correo"
           autoCapitalize="words"
         />
-        {query.length >= 2 && matches.length === 0 ? (
-          <p className="mt-3 text-sm text-stone">Nadie en la lista se llama así.</p>
+        {hasQuery && matches.length === 0 ? (
+          <p className="mt-3 text-sm text-stone">Nadie coincide con ese nombre, mesa, teléfono o correo.</p>
         ) : null}
         {matches.length > 0 ? (
           <ul className="mt-3 divide-y divide-line">
-            {matches.map((guest) => (
+            {matches.map(({ guest, field }) => (
               <li key={guest.id} className="flex items-center justify-between gap-3 py-2">
-                <div>
+                <div className="min-w-0">
                   <p className="font-medium">{guest.name}</p>
                   <p className="text-sm text-stone">
-                    {sideLabel(guest.side)} · {peopleLabel(guest.party)}
+                    {matchLabel(field)} · {sideLabel(guest.side)} · {peopleLabel(guest.party)}
                     {guest.note ? ` · ${guest.note}` : ""}
+                    {field === "teléfono" ? ` · ${guest.phone}` : ""}
+                    {field === "correo" ? ` · ${guest.email}` : ""}
                     {guest.status === "Ingresado" ? " · Ya ingresó" : ""}
                   </p>
                 </div>

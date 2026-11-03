@@ -1,4 +1,5 @@
 import { coupleNames, entryLabel, formatLongDate, formatStamp, headsIn, sideLabel } from "@/lib/mievento/format";
+import { tableGroups } from "@/lib/mievento/tables";
 import type { DraftGuest, Guest, Side, WeddingEvent } from "@/lib/mievento/types";
 
 const NAME_KEYS = ["nombre", "name", "invitado", "invitada", "guest", "nombres"];
@@ -47,6 +48,77 @@ export function withoutRepeatedNames(
     const key = nameKey(draft.name);
     if (!key || seen.has(key)) continue;
     seen.add(key);
+    kept.push(draft);
+  }
+  return { kept, omitted: drafts.length - kept.length };
+}
+
+export type ContactClash = {
+  kind: "teléfono" | "correo";
+  value: string;
+  names: string[];
+  inFile: number;
+  already: boolean;
+};
+
+/** Normaliza a los últimos 10 dígitos: así «5512345678» y «+52 55…» son el mismo. */
+export function phoneKey(value: string): string | null {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  return digits.slice(-10);
+}
+
+export function emailKey(value: string): string | null {
+  const email = value.trim().toLowerCase();
+  return email.includes("@") ? email : null;
+}
+
+/**
+ * Avisa cuando un teléfono o correo se repite en el archivo o ya pertenece a
+ * alguien de la lista: evita enviar dos pases válidos a la misma persona.
+ */
+export function contactClashes(drafts: DraftGuest[], existing: Guest[]): ContactClash[] {
+  const existingPhones = new Set(existing.map((guest) => phoneKey(guest.phone)).filter(Boolean));
+  const existingEmails = new Set(existing.map((guest) => emailKey(guest.email)).filter(Boolean));
+  const groups = new Map<string, ContactClash>();
+  const add = (kind: ContactClash["kind"], key: string, name: string) => {
+    const id = `${kind}:${key}`;
+    const current = groups.get(id) ?? {
+      kind,
+      value: key,
+      names: [],
+      inFile: 0,
+      already: kind === "teléfono" ? existingPhones.has(key) : existingEmails.has(key),
+    };
+    current.inFile += 1;
+    if (!current.names.includes(name)) current.names.push(name.trim());
+    groups.set(id, current);
+  };
+  for (const draft of drafts) {
+    const phone = phoneKey(draft.phone);
+    const email = emailKey(draft.email);
+    if (phone) add("teléfono", phone, draft.name);
+    if (email) add("correo", email, draft.name);
+  }
+  return [...groups.values()]
+    .filter((clash) => clash.inFile > 1 || clash.already || clash.names.length > 1)
+    .sort((a, b) => a.kind.localeCompare(b.kind, "es") || a.value.localeCompare(b.value, "es"));
+}
+
+/** Conserva la primera fila de cada teléfono/correo y descarta las demás. */
+export function withoutRepeatedContacts(
+  drafts: DraftGuest[],
+  existing: Guest[],
+): { kept: DraftGuest[]; omitted: number } {
+  const phones = new Set(existing.map((guest) => phoneKey(guest.phone)).filter(Boolean));
+  const emails = new Set(existing.map((guest) => emailKey(guest.email)).filter(Boolean));
+  const kept: DraftGuest[] = [];
+  for (const draft of drafts) {
+    const phone = phoneKey(draft.phone);
+    const email = emailKey(draft.email);
+    if ((phone && phones.has(phone)) || (email && emails.has(email))) continue;
+    if (phone) phones.add(phone);
+    if (email) emails.add(email);
     kept.push(draft);
   }
   return { kept, omitted: drafts.length - kept.length };
@@ -221,6 +293,37 @@ export function closingCsv(event: WeddingEvent, list: Guest[]): Blob {
       guest.note,
     ]),
   ];
+  return csvBlob(lines);
+}
+
+/** Resumen por mesa y detalle de invitados, listo para imprimir el plan de mesas. */
+export function tablesCsv(list: Guest[]): Blob {
+  const groups = tableGroups(list);
+  const rows: string[][] = [
+    ["Mesas", String(groups.length)],
+    [],
+    ["Mesa", "Invitaciones", "Ingresaron", "Personas en el pase", "Personas dentro", "Personas que faltan"],
+    ...groups.map((group) => [
+      group.table,
+      String(group.invitations),
+      String(group.admitted),
+      String(group.expectedPeople),
+      String(group.insidePeople),
+      String(Math.max(0, group.expectedPeople - group.insidePeople)),
+    ]),
+    [],
+    ["Mesa", "Nombre", "Lado", "Personas", "Estado"],
+    ...groups.flatMap((group) =>
+      group.guests
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "es"))
+        .map((guest) => [group.table, guest.name, sideLabel(guest.side), String(guest.party), guest.status]),
+    ),
+  ];
+  return csvBlob(rows);
+}
+
+function csvBlob(lines: string[][]): Blob {
   const body = lines.map((row) => row.map(csvCell).join(";")).join("\r\n");
   return new Blob([`\uFEFF${body}\r\n`], { type: "text/csv;charset=utf-8" });
 }
