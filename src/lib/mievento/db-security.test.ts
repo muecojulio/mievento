@@ -27,3 +27,17 @@ it("conserva índices utilizados y elimina el índice de estado sin uso", async 
   assert.equal(indexes.contains("byEventStatus"), false);
   db.close();
 });
+
+it("restaura una instantánea atómicamente y no sobrescribe invitados de otros eventos", async () => {
+  const { dbReplacePeerSnapshot, dbGetAll, dbApplyPeerChange } = await import("./db.ts");
+  const event = { id: "paired-event", secret: "paired-secret" } as WeddingEvent;
+  const g = { id: "paired-guest", eventId: event.id, token: "paired-token" } as Guest;
+  await dbReplacePeerSnapshot(event, [g]);
+  await assert.rejects(dbReplacePeerSnapshot(event, [{ ...g, id: "guest", token: "other-token" }]), /otro evento/);
+  assert.ok((await dbGetAll()).guests.some((item) => item.id === g.id));
+  await dbApplyPeerChange({ type: "delete-guest", id: "guest", eventId: event.id });
+  assert.ok((await dbGetAll()).guests.some((item) => item.id === "guest"));
+  await dbReplacePeerSnapshot(event, []);
+  assert.equal((await dbGetAll()).guests.some((item) => item.id === g.id), false);
+  assert.ok((await dbGetAll()).guests.some((item) => item.id === "guest"));
+});
