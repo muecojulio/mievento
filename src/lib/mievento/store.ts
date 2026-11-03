@@ -1,6 +1,8 @@
+import { onChange, publishChange } from "@/lib/mievento/change-bus";
+import { decryptBackup, encryptBackup } from "@/lib/mievento/backup-crypto";
 import { useMemo, useSyncExternalStore } from "react";
 import { makeToken, parseToken, randomId, randomSecret, safeEqual, signBody } from "@/lib/mievento/crypto";
-import { dbAdmitGuest, dbDeleteEvent, dbDeleteGuest, dbGetAll, dbPutEvent, dbPutGuests } from "@/lib/mievento/db";
+import { dbAdmitGuest, dbDeleteEvent, dbDeleteGuest, dbGetAll, dbPutEvent, dbPutGuests, dbReplacePeerSnapshot } from "@/lib/mievento/db";
 import type {
   AdmitResult,
   DraftGuest,
@@ -42,6 +44,13 @@ async function bootInner() {
       await seedDemo();
       localStorage.setItem(SEEDED_KEY, "1");
     }
+    onChange(() => {
+      void dbGetAll().then((stored) => {
+        events = stored.events.sort((a, b) => b.createdAt - a.createdAt);
+        guests = stored.guests.map(normalizeGuest);
+        emit();
+      }).catch(() => { bootError = "No se pudieron actualizar los datos sincronizados"; emit(); });
+    });
     ready = true;
     bootError = null;
   } catch (error) {
@@ -423,13 +432,13 @@ export async function revertAdmit(guestId: string): Promise<void> {
   }
 }
 
-export async function exportBackup(eventId: string): Promise<string> {
+export async function exportBackup(eventId: string, password?: string): Promise<string> {
   const event = events.find((item) => item.id === eventId);
   if (!event) throw new Error("Evento no encontrado");
   const list = guests.filter((guest) => guest.eventId === eventId);
   let photo: string | null = null;
   if (event.photo) photo = await blobToDataUrl(event.photo);
-  return JSON.stringify(
+  const json = JSON.stringify(
     {
       kind: "mievento-backup",
       version: 1,
@@ -439,10 +448,11 @@ export async function exportBackup(eventId: string): Promise<string> {
     null,
     2,
   );
+  return password === undefined ? json : encryptBackup(json, password);
 }
 
-export async function importBackup(file: File): Promise<string> {
-  const parsed = JSON.parse(await file.text()) as {
+export async function importBackup(file: File, password?: string): Promise<string> {
+  const parsed = JSON.parse(await decryptBackup(await file.text(), password)) as {
     kind?: string;
     event?: WeddingEvent & { photo: string | null };
     guests?: Guest[];
@@ -450,19 +460,27 @@ export async function importBackup(file: File): Promise<string> {
   if (parsed.kind !== "mievento-backup" || !parsed.event?.id || !parsed.event.secret) {
     throw new Error("Este archivo no es una copia de Mi Evento");
   }
+  if (!Array.isArray(parsed.guests) || parsed.guests.length > 2000 ||
+      typeof parsed.event.secret !== "string" || typeof parsed.event.id !== "string" ||
+      [parsed.event.groom, parsed.event.bride, parsed.event.date, parsed.event.time, parsed.event.place].some((value) => typeof value !== "string") ||
+      !Number.isFinite(parsed.event.createdAt) ||
+      parsed.guests.some((g) => !g || typeof g.id !== "string" || typeof g.name !== "string" || typeof g.token !== "string" ||
+        g.eventId !== parsed.event!.id || !["novio", "novia"].includes(g.side) || !["Pendiente", "Ingresado"].includes(g.status))) {
+    throw new Error("La copia contiene datos no válidos");
+  }
   const photo = parsed.event.photo ? await dataUrlToBlob(parsed.event.photo) : null;
   const event: WeddingEvent = { ...parsed.event, photo, demo: false };
   const list = (parsed.guests ?? [])
     .filter((guest) => guest.eventId === event.id && guest.token && guest.name)
     .map(normalizeGuest);
-  const keep = new Set(list.map((guest) => guest.id));
-  const stale = guests.filter((guest) => guest.eventId === event.id && !keep.has(guest.id));
-  await dbPutEvent(event);
-  for (const guest of stale) await dbDeleteGuest(guest.id);
-  await dbPutGuests(list);
+  const stale = guests.filter((guest) => guest.eventId === event.id && !list.some((item) => item.id === guest.id));
+  await dbReplacePeerSnapshot(event, list);
   events = [event, ...events.filter((item) => item.id !== event.id)];
   const others = guests.filter((guest) => guest.eventId !== event.id);
   guests = [...others, ...list];
+  for (const guest of stale) publishChange({ type: "delete-guest", id: guest.id, eventId: event.id });
+  publishChange({ type: "event", event });
+  publishChange({ type: "guests", guests: list });
   emit();
   return event.id;
 }

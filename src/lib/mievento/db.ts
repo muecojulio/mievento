@@ -1,3 +1,4 @@
+import { publishChange, type Change } from "@/lib/mievento/change-bus";
 import type { EntryKind, Guest, WeddingEvent } from "@/lib/mievento/types";
 
 const DB_NAME = "mievento";
@@ -56,6 +57,7 @@ export async function dbPutEvent(event: WeddingEvent): Promise<void> {
   const tx = db.transaction("events", "readwrite");
   tx.objectStore("events").put(event);
   await txDone(tx);
+  publishChange({ type: "event", event });
 }
 
 export async function dbPutGuests(guests: Guest[]): Promise<void> {
@@ -65,13 +67,16 @@ export async function dbPutGuests(guests: Guest[]): Promise<void> {
   const store = tx.objectStore("guests");
   for (const guest of guests) store.put(guest);
   await txDone(tx);
+  publishChange({ type: "guests", guests });
 }
 
 export async function dbDeleteGuest(id: string): Promise<void> {
   const db = await openDb();
   const tx = db.transaction("guests", "readwrite");
+  const guest = await requestToPromise(tx.objectStore("guests").get(id)) as Guest | undefined;
   tx.objectStore("guests").delete(id);
   await txDone(tx);
+  if (guest) publishChange({ type: "delete-guest", id, eventId: guest.eventId });
 }
 
 export async function dbDeleteEvent(eventId: string): Promise<void> {
@@ -82,6 +87,7 @@ export async function dbDeleteEvent(eventId: string): Promise<void> {
   const keys = await requestToPromise(index.getAllKeys(eventId));
   for (const key of keys) tx.objectStore("guests").delete(key);
   await txDone(tx);
+  publishChange({ type: "delete-event", eventId });
 }
 
 function txDone(tx: IDBTransaction): Promise<void> {
@@ -128,5 +134,47 @@ export async function dbAdmitGuest(input: {
     result = { kind: "ok", guest: next };
   }
   await done;
+  if (result.kind === "ok") publishChange({ type: "guests", guests: [result.guest] });
   return result;
+}
+
+/** Apply a paired peer's operation atomically, without echoing it back. */
+export async function dbApplyPeerChange(change: Change): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(["events", "guests"], "readwrite");
+  const done = txDone(tx);
+  const es = tx.objectStore("events"), gs = tx.objectStore("guests");
+  if (change.type === "event") es.put(change.event);
+  if (change.type === "guests") for (const guest of change.guests) {
+    const existing = await requestToPromise(gs.get(guest.id)) as Guest | undefined;
+    if (existing && existing.eventId !== guest.eventId) { tx.abort(); await done.catch(() => undefined); throw new Error("El cambio pertenece a otro evento"); }
+    gs.put(guest);
+  }
+  if (change.type === "delete-guest") {
+    const existing = await requestToPromise(gs.get(change.id)) as Guest | undefined;
+    if (existing?.eventId === change.eventId) gs.delete(change.id);
+  }
+  if (change.type === "delete-event") {
+    es.delete(change.eventId);
+    const keys = await requestToPromise(gs.index("byEvent").getAllKeys(change.eventId));
+    for (const id of keys) gs.delete(id);
+  }
+  await done;
+}
+
+export async function dbReplacePeerSnapshot(event: WeddingEvent, list: Guest[]): Promise<void> {
+  if (!event.id || !event.secret || list.length > 2000 || new Set(list.map((g) => g.id)).size !== list.length || list.some((g) => g.eventId !== event.id || !g.id || !g.token)) throw new Error("Evento recibido no válido");
+  const db = await openDb();
+  const tx = db.transaction(["events", "guests"], "readwrite");
+  const done = txDone(tx);
+  const store = tx.objectStore("guests");
+  for (const guest of list) {
+    const existing = await requestToPromise(store.get(guest.id)) as Guest | undefined;
+    if (existing && existing.eventId !== event.id) { tx.abort(); await done.catch(() => undefined); throw new Error("La copia contiene identificadores de otro evento"); }
+  }
+  const keys = await requestToPromise(store.index("byEvent").getAllKeys(event.id));
+  for (const key of keys) store.delete(key);
+  tx.objectStore("events").put(event);
+  for (const guest of list) store.put(guest);
+  await done;
 }

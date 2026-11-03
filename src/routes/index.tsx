@@ -1,3 +1,5 @@
+import { RestoreBackup } from "@/components/mievento/backup-controls";
+import { LocalSync } from "@/components/mievento/local-sync";
 import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
@@ -6,7 +8,7 @@ import { Btn, Mark, Monogram, OnlineNote, usePhotoUrl } from "@/components/mieve
 import { coupleNames, formatLongDate, tally } from "@/lib/mievento/format";
 import { countdownLabel, daysUntil } from "@/lib/mievento/public-apis";
 import { qrDataUrl } from "@/lib/mievento/pass";
-import { createEvent, importBackup, useBootError, useEvents, useGuests, useReady } from "@/lib/mievento/store";
+import { createEvent, useBootError, useEvents, useGuests, useReady } from "@/lib/mievento/store";
 import type { WeddingEvent } from "@/lib/mievento/types";
 
 export const Route = createFileRoute("/")({
@@ -109,23 +111,11 @@ function Home() {
           ) : (
             <p className="mt-4 text-sm text-stone">El código de instalación aparece cuando la app está publicada en una dirección segura.</p>
           )}
-          <label className="mt-4 flex min-h-11 cursor-pointer items-center text-sm font-medium text-brass">
-            Restaurar una copia
-            <input
-              type="file"
-              accept="application/json,.json"
-              className="sr-only"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (!file) return;
-                const id = await importBackup(file);
-                await navigate({ to: "/evento/$eventId", params: { eventId: id } });
-              }}
-            />
-          </label>
+          <RestoreBackup onRestored={async (id) => { await navigate({ to: "/evento/$eventId", params: { eventId: id } }); }} />
         </div>
       </section>
+
+      <LocalSync />
 
       {open ? (
         <EventForm

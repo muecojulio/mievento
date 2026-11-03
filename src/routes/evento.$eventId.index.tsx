@@ -1,3 +1,5 @@
+import { EncryptedBackup } from "@/components/mievento/backup-controls";
+import { LocalSync } from "@/components/mievento/local-sync";
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ScanLine } from "lucide-react";
@@ -8,7 +10,7 @@ import { Btn, Monogram, OnlineNote, usePhotoUrl } from "@/components/mievento/ui
 import { downloadBlob } from "@/lib/mievento/pass";
 import { coupleNames, entryLabel, formatClock, formatLongDate, peopleLabel, sideLabel, slugFile, tally } from "@/lib/mievento/format";
 import { closingCsv } from "@/lib/mievento/excel";
-import { exportBackup, finishEvent, recycleCodes, removeEvent, reopenEvent, updateEvent, useEvent, useGuests } from "@/lib/mievento/store";
+import { finishEvent, recycleCodes, removeEvent, reopenEvent, updateEvent, useEvent, useGuests } from "@/lib/mievento/store";
 import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/evento/$eventId/")({
@@ -22,6 +24,7 @@ function Dashboard() {
   const photo = usePhotoUrl(event?.photo);
   const counts = useMemo(() => tally(guests), [guests]);
   const sent = guests.filter((guest) => guest.sentAt != null).length;
+  const [secureTools, setSecureTools] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState(false);
@@ -134,17 +137,7 @@ function Dashboard() {
           <Btn variant="ghost" onClick={() => setEditing(true)}>
             Editar evento
           </Btn>
-          <Btn
-            variant="ghost"
-            onClick={() =>
-              pinGuard.guard(async () => {
-                const json = await exportBackup(event.id);
-                downloadBlob(new Blob([json], { type: "application/json" }), `mievento-${slugFile(event)}.json`);
-              })
-            }
-          >
-            Descargar copia
-          </Btn>
+
           <Btn variant="quiet" onClick={pinGuard.openSettings}>
             PIN de la tablet
           </Btn>
@@ -161,6 +154,12 @@ function Dashboard() {
           La copia incluye la llave de los códigos. No la compartas: con ella se podrían fabricar pases.
         </p>
       </section>
+
+      <div className="mt-6"><Btn variant="ghost" onClick={() => pinGuard.guard(() => setSecureTools(true))}>Copias y conexión de tablets</Btn></div>
+      {secureTools ? <><section className="mt-6 rounded-3xl border border-line p-4">
+        <EncryptedBackup eventId={event.id} filename={`mievento-${slugFile(event)}.json`} />
+      </section>
+      <LocalSync eventId={event.id} /></> : null}
 
       {editing ? (
         <EventForm
