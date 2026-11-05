@@ -20,8 +20,11 @@ import {
   completeSync,
   disconnectSync,
   isSyncConnectedForEvent,
+  offerRequiresPin,
   offerSync,
+  syncSnapshot,
 } from "./local-sync.ts";
+import { pairingProof } from "./pairing.ts";
 import type { Guest, WeddingEvent } from "./types.ts";
 
 describe("control de puertas sin internet (lógica pura)", () => {
@@ -497,6 +500,85 @@ describe("anti-doble paso entre diferentes puertas sin internet (IndexedDB)", ()
       const generatedAnswer = await answerSync(freshOffer);
       assert.ok(generatedAnswer.startsWith("MESYNC1:"));
       disconnectSync();
+
+      // ── PIN de emparejamiento ────────────────────────────────────────────
+      // La oferta con PIN no lleva el PIN dentro del QR.
+      const offerWithPin = async () => {
+        const offer = await offerSync(ev.id, { requirePin: true });
+        const shown = syncSnapshot().pairingPin!;
+        assert.match(shown, /^\d{6}$/);
+        assert.equal(offer.includes(shown), false, "el PIN no debe viajar en el QR");
+        assert.equal(await offerRequiresPin(offer), true);
+        return { offer, shown, session: await decodeSignal(offer).then((s) => s.session) };
+      };
+      assert.equal(await offerRequiresPin(freshOffer), false);
+
+      /** Decodifica un QR/código MESYNC1 a su sobre JSON. */
+      const decodeSignal = async (text: string) => {
+        const bytes = Uint8Array.from(atob(text.slice(8)), (c) => c.charCodeAt(0));
+        return JSON.parse(
+          await new Response(
+            new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate")),
+          ).text(),
+        );
+      };
+
+      /** Construye la respuesta que devolvería una tablet receptora real. */
+      const answerFor = async (offer: string, pin?: string) => {
+        const bytes = Uint8Array.from(atob(offer.slice(8)), (c) => c.charCodeAt(0));
+        const parsed = JSON.parse(
+          await new Response(
+            new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate")),
+          ).text(),
+        );
+        const payload: Record<string, unknown> = {
+          ...parsed,
+          description: { type: "answer", sdp: `sdp-${Math.random().toString(36).slice(2)}` },
+        };
+        delete payload.pin;
+        if (pin) payload.proof = await pairingProof(pin, parsed.session, parsed.eventId);
+        const comp = await new Response(
+          new Blob([JSON.stringify(payload)])
+            .stream()
+            .pipeThrough(new CompressionStream("deflate")),
+        ).arrayBuffer();
+        let bin = "";
+        for (const b of new Uint8Array(comp)) bin += String.fromCharCode(b);
+        return `MESYNC1:${btoa(bin)}`;
+      };
+
+      // PIN incorrecto → no enlaza, lo dice y cierra el enlace (nada de fuerza bruta)
+      const wrong = await offerWithPin();
+      await assert.rejects(
+        completeSync(await answerFor(wrong.offer, wrong.shown === "000000" ? "111111" : "000000")),
+        /PIN incorrecto/,
+      );
+      assert.equal(isSyncConnectedForEvent(ev.id), false);
+      // Una respuesta fabricada sin la prueba del PIN tampoco enlaza
+      const unproven = await offerWithPin();
+      await assert.rejects(completeSync(await answerFor(unproven.offer)), /PIN incorrecto/);
+      assert.equal(isSyncConnectedForEvent(ev.id), false);
+      // PIN correcto → enlaza
+      const good = await offerWithPin();
+      await completeSync(await answerFor(good.offer, good.shown));
+      await new Promise((r) => setTimeout(r, 30));
+      assert.equal(isSyncConnectedForEvent(ev.id), true);
+      assert.equal(syncSnapshot().pairingPin, null, "el PIN se consume al verificar");
+      disconnectSync();
+
+      // Flujo real receptor: answerSync exige el PIN y devuelve una prueba verificable.
+      // (Receptor y principal comparten módulo aquí, así que esto va al final: answerSync
+      //  toma el rol de receptora y descarta el estado de la principal.)
+      const real = await offerWithPin();
+      await assert.rejects(answerSync(real.offer), /pide el PIN/);
+      await assert.rejects(answerSync(real.offer, { pin: "12345" }), /6 dígitos/);
+      const receiverAnswer = await answerSync(real.offer, { pin: real.shown });
+      const received = await decodeSignal(receiverAnswer);
+      assert.equal(received.pin, undefined);
+      assert.equal(received.proof, await pairingProof(real.shown, real.session, ev.id));
+      assert.equal(received.session, real.session);
+      disconnectSync();
+      assert.equal(isSyncConnectedForEvent(ev.id), false);
     } finally {
       globalThis.RTCPeerConnection = prevRTC;
     }

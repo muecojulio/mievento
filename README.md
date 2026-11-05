@@ -98,12 +98,15 @@ cuando no hay conexión. El modo offline depende de que el navegador ya haya
 almacenado los recursos necesarios.
 
 La admisión de un invitado existente se comprueba y registra en una transacción
-local, incluso ante lecturas simultáneas en pestañas del mismo navegador. Esto
-no sincroniza tablets distintas ni todas las ediciones abiertas en varias
-pestañas: usa una sola tablet y una sola sesión de administración para el
-control de puerta. Los datos locales y las copias de seguridad no están cifrados
-por la aplicación; protege el dispositivo y las copias. Las celdas exportadas
-al CSV se protegen contra fórmulas de hoja de cálculo.
+local, incluso ante lecturas simultáneas en pestañas del mismo navegador. Las
+tablets se pueden enlazar por WebRTC (Wi-Fi/hotspot local o internet) y las
+pestañas del mismo navegador se sincronizan por BroadcastChannel; aun así, para
+el control de puerta usa un solo responsable por puerta y revisa el estado del
+enlace antes de abrir. Los datos en IndexedDB **no** van cifrados en reposo: el
+cifrado AES-256-GCM con contraseña se aplica a las **copias de seguridad
+exportadas**, no a la base local, así que protege el dispositivo con bloqueo de
+pantalla y la copia con una contraseña robusta. Las celdas exportadas al CSV se
+protegen contra fórmulas de hoja de cálculo.
 
 El aviso de privacidad incluido es una base informativa: quien publique la app
 debe añadir los datos del responsable, un medio de contacto y los requisitos
@@ -118,13 +121,14 @@ La aplicación incorpora tres modos en **Control de puertas y uso único de QR**
 
 1. **Puerta asignada por QR (100 % sin internet ni red entre puertas):** cada invitado queda asignado de forma determinista a una única puerta (automáticamente por firma, por lado novio/novia, por número de mesa o manualmente/desde la columna `puerta` del CSV/Excel). El pase impreso, digital y de Wallet muestra la puerta asignada. En recepción, cada tablet elige qué puerta opera; si un QR se presenta en otra puerta, se rechaza localmente al instante indicando la puerta correcta sin necesitar internet ni comunicación entre tablets.
 2. **Cualquier puerta con enlace multipuerta activo (Wi-Fi / hotspot local sin internet, o por internet):** la tablet principal puede enlazar **múltiples puertas** simultáneamente por WebRTC (`iceServers: []` en red local o con STUN opcional por internet). Cada escaneo en las puertas secundarias solicita autorización atómica en serie a la tablet principal antes de validar el pase, impidiendo que un mismo QR entre por dos puertas incluso si se escanea al mismo milisegundo, y retransmitiendo el ingreso al resto de puertas conectadas.
-3. **Aviso automático cuando hace falta internet o enlace:** si se configura **Cualquier puerta** (entrada libre por cualquier acceso) y las tablets no tienen internet ni un enlace local activo entre sí, ningún dispositivo aislado puede saber físicamente qué se escaneó en otra puerta. En ese escenario la aplicación muestra un aviso explícito en el panel y en el escáner indicando que **se necesita internet o enlazar las puertas** (y por defecto bloquea el escaneo hasta conectar o cambiar a *Puerta asignada por QR*) para evitar que un mismo código QR pase en diferentes puertas.
+3. **Aviso automático cuando hace falta internet o enlace:** si se configura **Cualquier puerta** (entrada libre por cualquier acceso) y las tablets no tienen internet ni un enlace local activo entre sí, ningún dispositivo aislado puede saber físicamente qué se escaneó en otra puerta. En ese escenario la aplicación muestra un aviso explícito en el panel y en el escáner indicando que **se necesita internet o enlazar las puertas** (y por defecto bloquea el escaneo hasta conectar o cambiar a _Puerta asignada por QR_) para evitar que un mismo código QR pase en diferentes puertas.
 
 ### Sincronía local y copias seguras
 
 - **Copias:** en el resumen del evento, «Copias y conexión de tablets» (respeta el PIN configurado) → contraseña y confirmación → «Descargar copia cifrada». Se usa Web Crypto AES-256-GCM, IV aleatorio de 12 bytes, sal de 16 bytes y PBKDF2-SHA256 con 310 000 iteraciones. La contraseña no se guarda ni se puede recuperar. Inicio → «Restaurar una copia» admite tanto el nuevo sobre cifrado como el JSON v1 anterior. La restauración del evento y sus invitados es una única transacción; una contraseña incorrecta no modifica datos.
 - **Pestañas:** BroadcastChannel notifica cambios confirmados en IndexedDB y cada pestaña recarga el estado, sin recargar la página. Las admisiones del mismo navegador siguen protegidas por la transacción atómica existente. No se comparten PIN ni ajustes locales del croquis.
+- **PIN de emparejamiento:** al generar la oferta, «Pedir PIN al enlazar cada puerta» está activo por defecto. El PIN de 6 dígitos **no viaja dentro del QR**: se muestra en la tablet principal y se dicta a quien opera la otra puerta, que lo teclea antes de generar la respuesta. La receptora devuelve una prueba HMAC-SHA256 derivada por PBKDF2 (120 000 iteraciones, sal = sesión) y la principal la verifica antes de aceptar la conexión; un PIN erróneo no enlaza y cierra esa sesión, sin margen para probar combinaciones. Si se desactiva, la protección del QR es solo la caducidad de 10 minutos y la recomendación de mostrarlo en privado.
 - **Tablets y múltiples puertas:** abre la app previamente en las tablets, por HTTPS, y conéctalas a la misma Wi-Fi o al hotspot de un teléfono (sin datos móviles) o marca la opción de enlace por internet. En el evento principal genera una oferta QR por cada puerta adicional. En cada tablet secundaria, desde Inicio → «Recibir evento», escanea esa oferta y genera la respuesta. Escanea la respuesta desde la principal y pulsa conectar. El QR caduca en diez minutos y debe mantenerse privado. El hub principal mantiene varias puertas enlazadas a la vez, detecta si dos tablets eligen la misma puerta por error y serializa las admisiones.
 - **Límites reales:** algunas redes públicas aíslan dispositivos entre sí; en ese caso usa el hotspot local de un teléfono, activa el enlace por internet o elige el modo **Puerta asignada por QR** (que no requiere ninguna red entre puertas). El primer arranque de la app necesita haberla abierto antes con conexión para guardar los archivos en el navegador.
 
-Pruebas: `npm run test:app` incluye cifrado, alteración del archivo, contraseña incorrecta, retrocompatibilidad y aislamiento transaccional. Con la app en ejecución y Chromium instalado, `node scripts/local-sync-browser-test.mjs` comprueba BroadcastChannel, emparejamiento WebRTC entre dos contextos aislados, ingresos de vuelta y retransmisión desde otra pestaña. Opcionalmente acepta `BROWSER_EXECUTABLE_PATH` y `APP_URL`.
+Pruebas: `npm run test:app` incluye cifrado, alteración del archivo, contraseña incorrecta, retrocompatibilidad, aislamiento transaccional, el PIN de emparejamiento (que no viaje en el QR, dependencia de sesión y evento, PIN erróneo sin enlazar) y el flujo receptor de `answerSync`. Con la app en ejecución y Chromium instalado, `node scripts/local-sync-browser-test.mjs` comprueba BroadcastChannel, emparejamiento WebRTC entre dos contextos aislados, ingresos de vuelta y retransmisión desde otra pestaña. Opcionalmente acepta `BROWSER_EXECUTABLE_PATH` y `APP_URL`.

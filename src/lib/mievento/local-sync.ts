@@ -1,6 +1,12 @@
 import { useSyncExternalStore } from "react";
-import { onChange, publishRemoteChange, type Change, type ChangeMessage } from "@/lib/mievento/change-bus";
+import {
+  onChange,
+  publishRemoteChange,
+  type Change,
+  type ChangeMessage,
+} from "@/lib/mievento/change-bus";
 import { dbApplyPeerChange, dbGetAll, dbReplacePeerSnapshot } from "@/lib/mievento/db";
+import { newPairingPin, pairingProof, verifyPairingProof } from "@/lib/mievento/pairing";
 import type { AdmitResult, Guest, Side, WeddingEvent } from "@/lib/mievento/types";
 
 type Signal = {
@@ -10,6 +16,10 @@ type Signal = {
   description: RTCSessionDescriptionInit;
   expires: number;
   stun?: boolean;
+  /** La oferta exige PIN: la receptora debe devolver `proof` en su respuesta. */
+  pin?: boolean;
+  /** Prueba HMAC del PIN; sólo viaja en la respuesta (answer). */
+  proof?: string;
 };
 
 export type RemoteAdmitRequest =
@@ -48,6 +58,8 @@ export type SyncSnapshot = {
   connectedCount: number;
   isConnected: boolean;
   peerDoors: PeerDoorInfo[];
+  /** PIN que la tablet principal debe dictar a la otra puerta (null si no aplica). */
+  pairingPin: string | null;
 };
 
 type PeerLink = {
@@ -72,12 +84,15 @@ const SERVER_SNAPSHOT: SyncSnapshot = {
   connectedCount: 0,
   isConnected: false,
   peerDoors: [],
+  pairingPin: null,
 };
 
 const peers = new Map<string, PeerLink>();
 let activeEventId = "";
 let host = false;
 let pendingOfferSession = "";
+/** Sesiones de oferta que exigen PIN y todavía no han sido verificadas. */
+const pinGuards = new Map<string, { pin: string; eventId: string }>();
 let unsubscribeBus: (() => void) | undefined;
 let status = "Sin conexión";
 let localDoorClaim: PeerDoorInfo | null = null;
@@ -118,6 +133,7 @@ function buildSnapshot(): SyncSnapshot {
     connectedCount,
     isConnected: connectedCount > 0,
     peerDoors: [...doorMap.values()],
+    pairingPin: host ? (pinGuards.get(pendingOfferSession)?.pin ?? null) : null,
   };
 }
 
@@ -212,6 +228,7 @@ export function disconnectSync() {
   failAllPendingAdmits();
   for (const key of [...peers.keys()]) closeLink(key);
   pendingOfferSession = "";
+  pinGuards.clear();
   activeEventId = "";
   host = false;
   sent.clear();
@@ -285,7 +302,8 @@ function sendToLink(link: PeerLink, value: unknown) {
     .catch((error) => {
       closeLink(link.session);
       if (!host) failAllPendingAdmits();
-      if (peers.size === 0) update(error instanceof Error ? error.message : "Conexión interrumpida");
+      if (peers.size === 0)
+        update(error instanceof Error ? error.message : "Conexión interrumpida");
       else refreshStatusFromPeers();
     });
 }
@@ -395,7 +413,8 @@ async function receiveFromLink(link: PeerLink, text: string) {
 
   if (Array.isArray(value.doorRoster) && !host) {
     const firstOther = (value.doorRoster as PeerDoorInfo[]).find(
-      (item) => item && typeof item.deviceId === "string" && item.deviceId !== localDoorClaim?.deviceId,
+      (item) =>
+        item && typeof item.deviceId === "string" && item.deviceId !== localDoorClaim?.deviceId,
     );
     link.door = firstOther ?? null;
     emit();
@@ -550,6 +569,7 @@ async function encodeSignal(
   pc: RTCPeerConnection,
   sessionKey: string,
   useStun = false,
+  extras: { pin?: boolean; proof?: string } = {},
 ): Promise<string> {
   if (pc.iceGatheringState !== "complete") {
     await new Promise<void>((resolve, reject) => {
@@ -580,6 +600,8 @@ async function encodeSignal(
     description: pc.localDescription!.toJSON(),
     expires: Date.now() + 10 * 60_000,
     ...(useStun ? { stun: true } : {}),
+    ...(extras.pin ? { pin: true } : {}),
+    ...(extras.proof ? { proof: extras.proof } : {}),
   };
   const text = JSON.stringify(payload);
   const compressed = await new Response(
@@ -616,10 +638,17 @@ async function parseSignal(text: string): Promise<Signal> {
     !result.description?.sdp
   )
     throw new Error("QR inválido o caducado; genera uno nuevo");
+  if (result.proof !== undefined && (typeof result.proof !== "string" || result.proof.length > 128))
+    throw new Error("QR inválido: prueba de emparejamiento malformada");
+  if (result.pin !== undefined && typeof result.pin !== "boolean")
+    throw new Error("QR inválido: marca de PIN malformada");
   return result;
 }
 
-export async function offerSync(id: string, options?: { allowInternet?: boolean }) {
+export async function offerSync(
+  id: string,
+  options?: { allowInternet?: boolean; requirePin?: boolean },
+) {
   const useStun = Boolean(options?.allowInternet);
   if (!host || activeEventId !== id) {
     disconnectSync();
@@ -631,6 +660,9 @@ export async function offerSync(id: string, options?: { allowInternet?: boolean 
   activeEventId = id;
   const nextSession = crypto.randomUUID();
   pendingOfferSession = nextSession;
+  if (options?.requirePin) {
+    pinGuards.set(nextSession, { pin: newPairingPin(), eventId: id });
+  }
   const link = createPeerLink(nextSession, useStun);
   attachChannel(link, link.pc.createDataChannel("mievento", { ordered: true }));
   await link.pc.setLocalDescription(await link.pc.createOffer());
@@ -639,13 +671,25 @@ export async function offerSync(id: string, options?: { allowInternet?: boolean 
       ? "Esperando respuesta de la siguiente puerta…"
       : "Esperando la respuesta de la otra tablet",
   );
-  return encodeSignal(link.pc, nextSession, useStun);
+  return encodeSignal(link.pc, nextSession, useStun, {
+    pin: pinGuards.has(nextSession) ? true : undefined,
+  });
 }
 
-export async function answerSync(text: string) {
+/** ¿La oferta escaneada pide PIN? Permite mostrar el campo antes de responder. */
+export async function offerRequiresPin(text: string): Promise<boolean> {
+  return Boolean((await parseSignal(text)).pin);
+}
+
+export async function answerSync(text: string, options?: { pin?: string }) {
   const offer = await parseSignal(text);
   if (offer.description.type !== "offer")
     throw new Error("Escanea el QR de oferta de la tablet principal");
+  const pin = options?.pin?.trim();
+  if (offer.pin && !pin)
+    throw new Error("Esta oferta pide el PIN que muestra la tablet principal.");
+  // Se deriva antes de tocar el estado: un PIN inválido no deja nada a medias.
+  const proof = offer.pin ? await pairingProof(pin!, offer.session, offer.eventId) : undefined;
   disconnectSync();
   host = false;
   activeEventId = offer.eventId;
@@ -654,19 +698,24 @@ export async function answerSync(text: string) {
   await link.pc.setRemoteDescription(offer.description);
   await link.pc.setLocalDescription(await link.pc.createAnswer());
   update("Muestra esta respuesta a la tablet principal");
-  return encodeSignal(link.pc, offer.session, useStun);
+  return encodeSignal(link.pc, offer.session, useStun, { proof });
 }
 
 export async function completeSync(text: string) {
   const answer = await parseSignal(text);
   const link = peers.get(answer.session);
-  if (
-    !host ||
-    !link ||
-    answer.eventId !== activeEventId ||
-    answer.description.type !== "answer"
-  )
+  if (!host || !link || answer.eventId !== activeEventId || answer.description.type !== "answer")
     throw new Error("La respuesta no corresponde a esta conexión");
+  const guard = pinGuards.get(answer.session);
+  if (guard) {
+    if (!(await verifyPairingProof(guard.pin, answer.session, guard.eventId, answer.proof ?? ""))) {
+      pinGuards.delete(answer.session);
+      closeLink(answer.session);
+      if (pendingOfferSession === answer.session) pendingOfferSession = "";
+      throw new Error("PIN incorrecto: la otra tablet no quedó enlazada.");
+    }
+    pinGuards.delete(answer.session);
+  }
   if (pendingOfferSession === answer.session) pendingOfferSession = "";
   await link.pc.setRemoteDescription(answer.description);
   update("Conectando puertas…");
